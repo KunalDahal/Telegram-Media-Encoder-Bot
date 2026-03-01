@@ -116,7 +116,7 @@ async def show_status(client: Client, message: Message, task_queue, page=0, is_c
         status_text += f"┖ <code>/cancel {task['task_id'][:8]}</code>\n"
         
         if i < end_idx:
-            status_text += ".\n"
+            status_text += "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁\n"
     
     cpu_percent = psutil.cpu_percent(interval=0.1)
     memory = psutil.virtual_memory()

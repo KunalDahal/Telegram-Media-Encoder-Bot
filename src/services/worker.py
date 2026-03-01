@@ -2,7 +2,6 @@ import asyncio
 import os
 import shutil
 from datetime import datetime
-import concurrent.futures
 
 class Worker:
     def __init__(self, task_queue, user_settings_getter, ffmpeg, client):
@@ -16,7 +15,6 @@ class Worker:
         self.current_task = None
         self.current_task_id = None
         self.processing_task = None
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         
         os.makedirs(self.temp_base, exist_ok=True)
         os.makedirs(self.thumbnails_dir, exist_ok=True)
@@ -49,7 +47,6 @@ class Worker:
                 await self.processing_task
             except:
                 pass
-        self.executor.shutdown(wait=False)
 
     async def cancel_task(self, task_id: str):
         try:
@@ -122,11 +119,10 @@ class Worker:
             from src.services.encoder import Encoder
             encoder = Encoder(self.ffmpeg)
             
-            loop = asyncio.get_event_loop()
-            encoded_path = await loop.run_in_executor(
-                self.executor,
-                self._run_encoding_sync,
-                encoder, task, downloaded_path, settings
+            encoded_path = await encoder.encode(
+                task_data=task,
+                input_path=downloaded_path,
+                settings=settings
             )
             
             if not encoded_path or not os.path.exists(encoded_path):
@@ -193,20 +189,6 @@ class Worker:
             self.current_task_id = None
             self.current_task = None
             self.task_queue.set_processing(False)
-
-    def _run_encoding_sync(self, encoder, task, downloaded_path, settings):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(
-                encoder.encode(
-                    task_data=task,
-                    input_path=downloaded_path,
-                    settings=settings
-                )
-            )
-        finally:
-            loop.close()
 
     async def notify_user(self, user_id: int, message: str):
         try:

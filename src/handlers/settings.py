@@ -93,7 +93,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "set_crf":
             sent_message = await message.edit_text(
-                "Send CRF value (0-58):\nLower = better quality, higher = smaller file\n\nUse /cancel to go back."
+                "Send CRF value (0-58):\nLower = better quality, higher = smaller file\n\nUse /skip to go back."
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_crf",
@@ -192,7 +192,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "meta_title":
             sent_message = await message.edit_text(
-                "Send the title for your videos:\n\nUse /cancel to go back."
+                "Send the title for your videos:\n\nUse /skip to go back."
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_meta_title",
@@ -201,7 +201,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "meta_author":
             sent_message = await message.edit_text(
-                "Send the author name:\n\nUse /cancel to go back."
+                "Send the author name:\n\nUse /skip to go back."
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_meta_author",
@@ -210,7 +210,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "meta_encoder":
             sent_message = await message.edit_text(
-                "Send the encoder name:\n\nUse /cancel to go back."
+                "Send the encoder name:\n\nUse /skip to go back."
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_meta_encoder",
@@ -224,7 +224,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "set_thumbnail":
             sent_message = await message.edit_text(
-                "Send me an image to use as thumbnail.\nUse /cancel to go back."
+                "Send me an image to use as thumbnail.\nUse /skip to go back."
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_thumbnail",
@@ -390,8 +390,8 @@ def setup_settings_handlers(app: Client, user_settings):
                     
                 await us_command(client, message)
 
-    @app.on_message(filters.command("cancel") & filters.private)
-    async def cancel_command(client: Client, message: Message):
+    @app.on_message(filters.command("skip") & filters.private)
+    async def skip_command(client: Client, message: Message):
         user_id = message.from_user.id
         
         if user_id in user_settings(user_id).temp_state:
@@ -413,7 +413,7 @@ def setup_settings_handlers(app: Client, user_settings):
                 
             await us_command(client, message)
         else:
-            await message.reply_text("Nothing to cancel.")
+            await message.reply_text("Nothing to skip.")
 
     @app.on_message(filters.photo & filters.private)
     async def handle_thumbnail(client: Client, message: Message):

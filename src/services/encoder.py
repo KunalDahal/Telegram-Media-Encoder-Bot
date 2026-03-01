@@ -29,8 +29,7 @@ class Encoder:
         self.encode_progress["stage"] = "starting"
         
         try:
-            success, error, process = await self.ffmpeg.execute_with_process(cmd)
-            self.current_process = process
+            success, error = await self.ffmpeg.execute(cmd)
             
             if not success:
                 self.encode_progress["status"] = "failed"

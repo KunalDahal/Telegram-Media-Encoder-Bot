@@ -2,7 +2,7 @@
 services:
   video-encoder-bot:
     build: .
-    container_name: telegram-video-encoder
+    container_name: subarukijaiho
     restart: unless-stopped
     env_file:
       - .env
