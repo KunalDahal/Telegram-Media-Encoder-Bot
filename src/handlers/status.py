@@ -86,7 +86,7 @@ async def show_status(client: Client, message: Message, task_queue, page=0, is_c
             else:
                 elapsed = f"{minutes}m"
         
-        status_text += f"<b>Title {i}</b>\n"
+        status_text += f"<b>Task {i}</b>\n"
         status_text += f"┃ File: <code>{filename}</code>\n"
         
         if task['status'] == 'encoding':
@@ -95,12 +95,25 @@ async def show_status(client: Client, message: Message, task_queue, page=0, is_c
             status_text += f"┠ Elapsed: {elapsed}\n"
         else:
             progress_data = get_task_progress(task)
-            total_str = humanize.naturalsize(progress_data['total_size'], binary=True) if progress_data['total_size'] else "Unknown"
+            
+            if task['status'] == 'uploading':
+                if 'encoded_file_size' in task and task['encoded_file_size']:
+                    total_size = task['encoded_file_size']
+                elif 'upload_progress' in task and task['upload_progress'].get('total_size'):
+                    total_size = task['upload_progress']['total_size']
+                else:
+                    total_size = progress_data['total_size']
+            else:
+                total_size = progress_data['total_size']
+            
+            total_str = humanize.naturalsize(total_size, binary=True) if total_size else "Unknown"
+            
             status_text += f"┠ Size: {total_str}\n"
             status_text += f"┠ Status: <code>{task['status'].title()}</code>\n"
-            status_text += f"┠ Elapsed: {elapsed}\n" 
+            status_text += f"┠ Elapsed: {elapsed}\n"
+        
         status_text += f"┠ User: {user_info} | ID: <code>{user_id}</code>\n"
-        status_text += f"┖ <code>/cancel_{task['task_id'][:8]}</code>\n"
+        status_text += f"┖ <code>/cancel {task['task_id'][:8]}</code>\n"
         
         if i < end_idx:
             status_text += ".\n"
@@ -178,5 +191,12 @@ def get_task_progress(task):
                 'total_size': details.get('total_size', progress['total_size']),
                 'speed': details.get('speed', progress['speed'])
             })
+    if task['status'] == 'uploading' and 'upload_progress' in task:
+        upload_progress = task['upload_progress']
+        if upload_progress.get('total_size') and upload_progress['total_size'] > 0:
+            progress['total_size'] = upload_progress['total_size']
+            progress['downloaded'] = upload_progress.get('uploaded', progress['downloaded'])
+            progress['percentage'] = upload_progress.get('percentage', progress['percentage'])
+            progress['speed'] = upload_progress.get('speed', progress['speed'])
     
     return progress
