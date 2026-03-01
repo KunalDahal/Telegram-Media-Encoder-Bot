@@ -1,8 +1,11 @@
 pyrogram
-tgcrypto
+# tgcrypto
 python-dotenv
-aiohttp
 FFmpeg-python
 pydantic
 psutil
 humanize
+aiofiles 
+aiohttp 
+telegraph
+httpx

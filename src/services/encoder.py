@@ -1,4 +1,5 @@
 import os
+import asyncio
 
 class Encoder:
     def __init__(self, ffmpeg):
@@ -8,6 +9,7 @@ class Encoder:
             "percentage": 0,
             "stage": ""
         }
+        self.current_process = None
 
     async def encode(self, task_data: dict, input_path: str, settings: dict) -> str:
         output_file_name = task_data["output_filename"]
@@ -26,11 +28,23 @@ class Encoder:
         self.encode_progress["status"] = "encoding"
         self.encode_progress["stage"] = "starting"
         
-        success, error = await self.ffmpeg.execute(cmd)
-        
-        if not success:
-            self.encode_progress["status"] = "failed"
-            raise Exception(f"Encoding failed: {error}")
+        try:
+            success, error, process = await self.ffmpeg.execute_with_process(cmd)
+            self.current_process = process
+            
+            if not success:
+                self.encode_progress["status"] = "failed"
+                raise Exception(f"Encoding failed: {error}")
+        except asyncio.CancelledError:
+            if self.current_process:
+                try:
+                    self.current_process.terminate()
+                    await asyncio.sleep(0.5)
+                    if self.current_process.returncode is None:
+                        self.current_process.kill()
+                except:
+                    pass
+            raise
         
         if not os.path.exists(temp_output_path):
             self.encode_progress["status"] = "failed"

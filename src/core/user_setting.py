@@ -1,12 +1,16 @@
 import json
 import os
+import shutil
+import uuid
 from typing import Dict, Any
 
 class UserSettings:
     def __init__(self, user_id: int):
         self.user_id = user_id
         self.db_folder = "./src/bin/users"
+        self.thumbnails_folder = "./src/bin/thumbnails"
         os.makedirs(self.db_folder, exist_ok=True)
+        os.makedirs(self.thumbnails_folder, exist_ok=True)
 
         self.storage_path = os.path.join(self.db_folder, f"{self.user_id}.json")
 
@@ -76,8 +80,22 @@ class UserSettings:
         self._save()
 
     def set_thumbnail(self, path: str):
-        self.data["thumbnail_path"] = path
-        self._save()
+        if path and os.path.exists(path):
+            ext = os.path.splitext(path)[1]
+            thumb_filename = f"thumb_{self.user_id}_{uuid.uuid4().hex[:8]}{ext}"
+            persistent_path = os.path.join(self.thumbnails_folder, thumb_filename)
+            
+            shutil.copy2(path, persistent_path)
+            
+            old_thumb = self.data.get("thumbnail_path")
+            if old_thumb and old_thumb != persistent_path and os.path.exists(old_thumb) and old_thumb.startswith(self.thumbnails_folder):
+                try:
+                    os.remove(old_thumb)
+                except:
+                    pass
+            
+            self.data["thumbnail_path"] = persistent_path
+            self._save()
 
     def reset(self):
         self.data = self._get_default_settings()

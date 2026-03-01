@@ -18,7 +18,6 @@ def setup_settings_handlers(app: Client, user_settings):
         username = user.username or ""
         
         settings = user_settings(user_id).get()
-
         
         text = (
             f"**Your Encoding Settings**\n\n"
@@ -36,7 +35,7 @@ def setup_settings_handlers(app: Client, user_settings):
             f"• Title: `{settings['metadata']['title'] or 'None'}`\n"
             f"• Author: `{settings['metadata']['author'] or 'None'}`\n"
             f"• Encoder: `{settings['metadata']['encoder'] or 'None'}`\n\n"
-            f"**Thumbnail:** {'✅ Set' if settings['thumbnail_path'] else '❌ Not set'}"
+            f"**Thumbnail:** {'✅ Set' if settings['thumbnail_path'] and os.path.exists(settings['thumbnail_path']) else '❌ Not set'}"
         )
         
         keyboard = InlineKeyboardMarkup([
@@ -269,7 +268,7 @@ def setup_settings_handlers(app: Client, user_settings):
             f"• Title: `{settings['metadata']['title'] or 'None'}`\n"
             f"• Author: `{settings['metadata']['author'] or 'None'}`\n"
             f"• Encoder: `{settings['metadata']['encoder'] or 'None'}`\n\n"
-            f"**Thumbnail:** {'✅ Set' if settings['thumbnail_path'] else '❌ Not set'}"
+            f"**Thumbnail:** {'✅ Set' if settings['thumbnail_path'] and os.path.exists(settings['thumbnail_path']) else '❌ Not set'}"
         )
         
         keyboard = InlineKeyboardMarkup([
@@ -425,11 +424,18 @@ def setup_settings_handlers(app: Client, user_settings):
             if isinstance(state_data, dict) and state_data.get("state") == "waiting_thumbnail":
                 prompt_message_id = state_data.get("prompt_message_id")
                 
-                thumb_dir = "./src/bin/users/thumbs"
-                os.makedirs(thumb_dir, exist_ok=True)
-                file_path = os.path.join(thumb_dir, f"{user_id}_thumb.jpg")
-                await message.download(file_name=file_path)
-                user_settings(user_id).set_thumbnail(file_path)
+                temp_thumb_dir = "./src/bin/temp_thumbs"
+                os.makedirs(temp_thumb_dir, exist_ok=True)
+                temp_file_path = os.path.join(temp_thumb_dir, f"{user_id}_{message.id}.jpg")
+                
+                await message.download(file_name=temp_file_path)
+                user_settings(user_id).set_thumbnail(temp_file_path)
+                
+                try:
+                    os.remove(temp_file_path)
+                except:
+                    pass
+                    
                 del user_settings(user_id).temp_state[user_id]
                 
                 try:

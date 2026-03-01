@@ -92,6 +92,8 @@ async def process_encode_command(client: Client, message: Message, task_queue, u
     
     task_data = {
         "user_id": message.from_user.id,
+        "first_name":message.from_user.first_name,
+        "username":message.from_user.username,
         "chat_id": message.chat.id,
         "message_id": message.id,
         "file_id": file_id,

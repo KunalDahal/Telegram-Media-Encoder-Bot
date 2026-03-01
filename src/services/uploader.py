@@ -1,3 +1,4 @@
+# uploader.py
 import os
 import shutil
 import time
@@ -45,6 +46,8 @@ class Uploader:
         
         file_size = os.path.getsize(final_file_path)
         
+        print(f"Uploading file: {final_file_path} ({file_size} bytes)")
+        
         self.upload_progress["total_size"] = file_size
         self.upload_progress["status"] = "uploading"
         self._start_time = time.time()
@@ -54,7 +57,10 @@ class Uploader:
         try:
             caption = f"`{output_file_name}`\n"
             
-            thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
+            thumb = None
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                thumb = thumbnail_path
+                print(f"Using thumbnail: {thumbnail_path}")
             
             if send_type.lower() in ["doc", "document"]:
                 result = await self.client.send_document(
@@ -77,6 +83,7 @@ class Uploader:
                 )
             
             self.upload_progress["status"] = "completed"
+            print(f"Upload completed for: {output_file_name}")
             return result
             
         except Exception as e:
@@ -112,7 +119,6 @@ class Uploader:
         })
         
         if self.task_queue:
-            # Use update_status if available
             if hasattr(self.task_queue, 'update_status'):
                 self.task_queue.update_status(
                     self.task_data["task_id"],

@@ -21,7 +21,7 @@ Join the main channel for updates and tips!
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Developer", url="https://t.me/subaru_bhai"),
-        InlineKeyboardButton(" Channel", url="https://t.me/AniBotStudio")]
+        InlineKeyboardButton(" Channel", url="https://t.me/AniIndex")]
     ])
     
     try:

@@ -11,6 +11,7 @@ class Worker:
         self.ffmpeg = ffmpeg
         self.client = client
         self.temp_base = "./src/bin/tmp"
+        self.thumbnails_dir = "./src/bin/thumbnails"
         self.running = False
         self.current_task = None
         self.current_task_id = None
@@ -18,6 +19,7 @@ class Worker:
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         
         os.makedirs(self.temp_base, exist_ok=True)
+        os.makedirs(self.thumbnails_dir, exist_ok=True)
 
     async def start(self):
         self.running = True
@@ -54,21 +56,34 @@ class Worker:
             self.processing_task.cancel()
             try:
                 await self.processing_task
-            except:
+            except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                print(f"Error cancelling task: {e}")
             
             self.current_task_id = None
             self.current_task = None
             self.task_queue.set_processing(False)
-            
+        
+        if task_id in self.task_queue.queue:
+            task = self.task_queue.get_task(task_id)
+            if task:
+                try:
+                    await self.client.send_message(
+                        task["user_id"],
+                        f"Task 🆔 {task_id[:8]} has been cancelled from queue."
+                    )
+                except:
+                    pass
+        
         self.task_queue.remove_task(task_id)
         
         task_folder = os.path.join(self.temp_base, task_id)
         if os.path.exists(task_folder):
             try:
                 shutil.rmtree(task_folder)
-            except:
-                pass
+            except Exception as e:
+                print(f"Failed to clean up folder for task {task_id}: {e}")
 
     async def process_task(self, task: dict):
         task_id = task["task_id"]
@@ -82,7 +97,6 @@ class Worker:
             
             self.task_queue.update_status(task_id, "downloading", 10)
             
-            # Import here to avoid circular imports
             from src.services.downloader import Downloader
             downloader = Downloader(self.temp_base, self.task_queue, task_id)
             downloaded_path = await downloader.download(
@@ -98,11 +112,9 @@ class Worker:
             user_settings = self.user_settings_getter(task["user_id"])
             settings = user_settings.get() if hasattr(user_settings, 'get') else user_settings
             
-            # Import here to avoid circular imports
             from src.services.encoder import Encoder
             encoder = Encoder(self.ffmpeg)
             
-            # Run encoding in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             encoded_path = await loop.run_in_executor(
                 self.executor,
@@ -150,11 +162,26 @@ class Worker:
                     except:
                         pass
             
+            thumbnail_to_preserve = task.get("thumbnail_path", "")
+            
+            if thumbnail_to_preserve and os.path.exists(thumbnail_to_preserve) and thumbnail_to_preserve.startswith(task_folder):
+                try:
+                    import uuid
+                    ext = os.path.splitext(thumbnail_to_preserve)[1]
+                    new_thumb_path = os.path.join(self.thumbnails_dir, f"thumb_{task['user_id']}_{uuid.uuid4().hex[:8]}{ext}")
+                    shutil.move(thumbnail_to_preserve, new_thumb_path)
+                    
+                    user_settings = self.user_settings_getter(task["user_id"])
+                    if hasattr(user_settings, 'set_thumbnail'):
+                        user_settings.set_thumbnail(new_thumb_path)
+                except Exception as e:
+                    print(f"Error preserving thumbnail: {e}")
+            
             if os.path.exists(task_folder):
                 try:
                     shutil.rmtree(task_folder)
-                except:
-                    pass
+                except Exception as e:
+                    print(f"Error cleaning up task folder: {e}")
             
             self.current_task_id = None
             self.current_task = None

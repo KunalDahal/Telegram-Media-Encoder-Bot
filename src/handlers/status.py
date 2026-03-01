@@ -73,6 +73,8 @@ async def show_status(client: Client, message: Message, task_queue, page=0, is_c
         user_info = f"@{task['username']}" if task.get('username') else task.get('first_name', 'Unknown')
         user_id = task['user_id']
         
+        filename = task.get('output_filename') or task.get('file_name') or task.get('original_filename') or "Unknown"
+        
         elapsed = ""
         if task.get('started_at'):
             started = datetime.fromisoformat(task['started_at'])
@@ -85,33 +87,20 @@ async def show_status(client: Client, message: Message, task_queue, page=0, is_c
                 elapsed = f"{minutes}m"
         
         status_text += f"<b>Title {i}</b>\n"
+        status_text += f"┃ File: <code>{filename}</code>\n"
         
         if task['status'] == 'encoding':
-            status_text += f"┃ Encoding in progress...\n"
-            status_text += f"┠ Using CPU for encoding\n"
-            status_text += f"┠ Status: <code>{task['status']}</code>\n"
-            status_text += f"┠ Speed: N/A | Elapsed: {elapsed}\n"
+            status_text += f"┃ Encoding in progress, Using CPU for encoding.\n"
+            status_text += f"┠ Status: <code>{task['status'].title()}</code>\n"
+            status_text += f"┠ Elapsed: {elapsed}\n"
         else:
             progress_data = get_task_progress(task)
-            bar_length = 12
-            filled = int(progress_data['percentage'] / 100 * bar_length)
-            bar = "■" * filled + "□" * (bar_length - filled)
-            
-            downloaded_str = humanize.naturalsize(progress_data['downloaded'], binary=True)
             total_str = humanize.naturalsize(progress_data['total_size'], binary=True) if progress_data['total_size'] else "Unknown"
-            
-            status_text += f"┃ [{bar}] {progress_data['percentage']}%\n"
-            status_text += f"┠ Processed: {downloaded_str} of {total_str}\n"
-            status_text += f"┠ Status: <code>{task['status']}</code>\n"
-            
-            if progress_data['speed'] > 0:
-                speed_str = humanize.naturalsize(progress_data['speed'], binary=True) + "/s"
-                status_text += f"┠ Speed: {speed_str} | Elapsed: {elapsed}\n"
-            else:
-                status_text += f"┠ Speed: -- | Elapsed: {elapsed}\n"
-        
+            status_text += f"┠ Size: {total_str}\n"
+            status_text += f"┠ Status: <code>{task['status'].title()}</code>\n"
+            status_text += f"┠ Elapsed: {elapsed}\n" 
         status_text += f"┠ User: {user_info} | ID: <code>{user_id}</code>\n"
-        status_text += f"┖ <code>/cancel_{task['task_id'][:12]}</code>\n"
+        status_text += f"┖ <code>/cancel_{task['task_id'][:8]}</code>\n"
         
         if i < end_idx:
             status_text += ".\n"

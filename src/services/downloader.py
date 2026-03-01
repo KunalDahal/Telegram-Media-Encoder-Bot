@@ -1,3 +1,4 @@
+# services/downloader.py
 import os
 import asyncio
 import time
@@ -37,6 +38,8 @@ class Downloader:
             self.download_progress["status"] = "downloading"
             self._start_time = time.time()
             
+            print(f"Downloading to: {file_path}")
+            
             await client.download_media(
                 file_id, 
                 file_name=file_path,
@@ -45,6 +48,8 @@ class Downloader:
             
             if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
                 raise Exception("Downloaded file not found or empty")
+            
+            print(f"Download completed: {file_path} ({os.path.getsize(file_path)} bytes)")
             
             self.download_progress["status"] = "completed"
             return file_path
@@ -99,7 +104,6 @@ class Downloader:
         })
         
         if self.task_queue and self.task_id:
-            # Use update_status if available
             if hasattr(self.task_queue, 'update_status'):
                 self.task_queue.update_status(
                     self.task_id, 

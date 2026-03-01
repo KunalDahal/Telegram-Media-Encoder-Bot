@@ -11,14 +11,15 @@ from src.handlers.settings import setup_settings_handlers
 from src.handlers.status import setup_status_handlers
 from src.handlers.start import setup_start_handler
 from src.handlers.help import setup_help_handlers
+from src.handlers.cancel import setup_cancel_handlers, set_worker_instance, set_admin_ids
 
 logging.basicConfig(level=logging.INFO)
 
 sessions_dir = "./src/bin/logs/"
 os.makedirs(sessions_dir, exist_ok=True)
-
-# Create bin directory if not exists for images
 os.makedirs("./src/bin/", exist_ok=True)
+os.makedirs("./src/bin/tmp", exist_ok=True)
+os.makedirs("./src/bin/thumbnails", exist_ok=True)
 
 async def main():
     config = Config()
@@ -46,7 +47,7 @@ async def main():
     @app.on_message(filters.command("encode") & filters.private)
     async def encode_private(client: Client, message: Message):
         if message.from_user.id not in config.admin_ids:
-            await message.reply_text("⛔ You are not authorized to use this command.")
+            await message.reply_text("You are not authorized to use this command.")
             return
             
         if not message.reply_to_message:
@@ -73,11 +74,18 @@ async def main():
     )
     
     worker = Worker(task_queue, get_user_settings, ffmpeg, app)
+    set_worker_instance(worker)
+    set_admin_ids(config.admin_ids)
+    
+    setup_cancel_handlers(app, task_queue)
+    
     asyncio.create_task(worker.start())
     
+    user = await app.get_me()
+    name = user.username
     print(f"""
     ╔══════════════════════════════════╗
-    ║   @{(await app.get_me()).username} Started!    ║
+    ║   @{name} Started!               ║
     ╠══════════════════════════════════╣
     ║ Commands:                        ║
     ║ • /start - Welcome               ║
@@ -85,6 +93,7 @@ async def main():
     ║ • /us - Your settings            ║
     ║ • /encode - Encode video         ║
     ║ • /status - Check queue          ║
+    ║ • /cancel - Cancel task          ║
     ╚══════════════════════════════════╝
     """)
     
