@@ -6,6 +6,7 @@ class FFmpeg:
     def __init__(self):
         self.encode_progress = 0
         self.current_stage = ""
+        self.current_process = None
         
     def _get_resolution_dimensions(self, resolution_str):
         resolution_map = {
@@ -80,30 +81,88 @@ class FFmpeg:
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await process.communicate()
+            self.current_process = process
             
-            if process.returncode != 0:
-                error_msg = stderr.decode('utf-8', errors='ignore')[:500]
-                return False, f"FFmpeg error (code {process.returncode}): {error_msg}"
-            
-            output_file = cmd[-1]
-            if not os.path.exists(output_file):
-                return False, f"Output file not created: {output_file}"
-            
-            if os.path.getsize(output_file) == 0:
-                return False, f"Output file is empty: {output_file}"
-            
-            return True, None
-            
+            try:
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode != 0:
+                    error_msg = stderr.decode('utf-8', errors='ignore')[:500]
+                    return False, f"FFmpeg error (code {process.returncode}): {error_msg}"
+                
+                output_file = cmd[-1]
+                if not os.path.exists(output_file):
+                    return False, f"Output file not created: {output_file}"
+                
+                if os.path.getsize(output_file) == 0:
+                    return False, f"Output file is empty: {output_file}"
+                
+                return True, None
+                
+            except asyncio.CancelledError:
+                if self.current_process and self.current_process.returncode is None:
+                    try:
+                        self.current_process.terminate()
+                        await asyncio.sleep(0.5)
+                        if self.current_process.returncode is None:
+                            self.current_process.kill()
+                        await self.current_process.wait()
+                    except:
+                        pass
+                raise
+                
         except FileNotFoundError:
             return False, "FFmpeg not found in system PATH"
         except asyncio.CancelledError:
-            if 'process' in locals():
-                try:
-                    process.terminate()
-                    await process.wait()
-                except:
-                    pass
-            return False, "Process cancelled by user"
+            raise
         except Exception as e:
             return False, f"Unexpected error: {str(e)}"
+        finally:
+            self.current_process = None
+    
+    async def execute_with_process(self, cmd):
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            self.current_process = process
+            
+            try:
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode != 0:
+                    error_msg = stderr.decode('utf-8', errors='ignore')[:500]
+                    return False, f"FFmpeg error (code {process.returncode}): {error_msg}", process
+                
+                output_file = cmd[-1]
+                if not os.path.exists(output_file):
+                    return False, f"Output file not created: {output_file}", process
+                
+                if os.path.getsize(output_file) == 0:
+                    return False, f"Output file is empty: {output_file}", process
+                
+                return True, None, process
+                
+            except asyncio.CancelledError:
+                if self.current_process and self.current_process.returncode is None:
+                    try:
+                        self.current_process.terminate()
+                        await asyncio.sleep(0.5)
+                        if self.current_process.returncode is None:
+                            self.current_process.kill()
+                        await self.current_process.wait()
+                    except:
+                        pass
+                raise
+                
+        except FileNotFoundError:
+            return False, "FFmpeg not found in system PATH", None
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            return False, f"Unexpected error: {str(e)}", None
+        finally:
+            self.current_process = None

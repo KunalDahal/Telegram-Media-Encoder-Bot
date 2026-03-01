@@ -58,6 +58,7 @@ async def main():
     
     setup_start_handler(app)
     setup_help_handlers(app)
+    setup_cancel_handlers(app, task_queue)
     setup_status_handlers(
         app=app,
         task_queue=task_queue,
@@ -77,7 +78,7 @@ async def main():
     set_worker_instance(worker)
     set_admin_ids(config.admin_ids)
     
-    setup_cancel_handlers(app, task_queue)
+
     
     asyncio.create_task(worker.start())
     

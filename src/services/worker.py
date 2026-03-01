@@ -52,38 +52,45 @@ class Worker:
         self.executor.shutdown(wait=False)
 
     async def cancel_task(self, task_id: str):
-        if self.current_task_id == task_id and self.processing_task:
-            self.processing_task.cancel()
-            try:
-                await self.processing_task
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                print(f"Error cancelling task: {e}")
-            
-            self.current_task_id = None
-            self.current_task = None
-            self.task_queue.set_processing(False)
-        
-        if task_id in self.task_queue.queue:
-            task = self.task_queue.get_task(task_id)
-            if task:
+        try:
+            if self.current_task_id == task_id and self.processing_task:
+                self.processing_task.cancel()
                 try:
-                    await self.client.send_message(
-                        task["user_id"],
-                        f"Task 🆔 {task_id[:8]} has been cancelled from queue."
-                    )
-                except:
-                    pass
-        
-        self.task_queue.remove_task(task_id)
-        
-        task_folder = os.path.join(self.temp_base, task_id)
-        if os.path.exists(task_folder):
-            try:
-                shutil.rmtree(task_folder)
-            except Exception as e:
-                print(f"Failed to clean up folder for task {task_id}: {e}")
+                    await self.processing_task
+                except asyncio.CancelledError:
+                    print(f"Task {task_id} successfully cancelled")
+                except Exception as e:
+                    print(f"Error during task cancellation: {e}")
+                
+                self.current_task_id = None
+                self.current_task = None
+                self.task_queue.set_processing(False)
+                self.task_queue.update_status(task_id, "cancelled", 0)
+            
+            if task_id in self.task_queue.queue:
+                task = self.task_queue.get_task(task_id)
+                if task:
+                    try:
+                        await self.client.send_message(
+                            task["user_id"],
+                            f"Task 🆔 {task_id[:8]} has been cancelled from queue."
+                        )
+                    except:
+                        pass
+                self.task_queue.queue.remove(task_id)
+            
+            if task_id in self.task_queue.tasks:
+                del self.task_queue.tasks[task_id]
+            
+            task_folder = os.path.join(self.temp_base, task_id)
+            if os.path.exists(task_folder):
+                try:
+                    shutil.rmtree(task_folder)
+                except Exception as e:
+                    print(f"Failed to clean up folder for task {task_id}: {e}")
+                    
+        except Exception as e:
+            print(f"Error in cancel_task: {e}")
 
     async def process_task(self, task: dict):
         task_id = task["task_id"]
