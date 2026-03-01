@@ -18,8 +18,7 @@ async def mediainfo_command(client, message: Message):
 
     if message.from_user.id not in config.admin_ids:
         await message.reply_text(
-            "❌ <b>You are not authorized to use this command.</b>",
-            parse_mode=enum.parse_mode.HTML
+            "Invalid!"
         )
         return
 

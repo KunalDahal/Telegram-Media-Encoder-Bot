@@ -14,14 +14,14 @@ def setup_status_handlers(app: Client, task_queue, admin_ids):
     @app.on_message(filters.command("status") & filters.private)
     async def status_command(client: Client, message: Message):
         if message.from_user.id not in admin_ids:
-            await message.reply_text("❌ You are not authorized to use this command.", parse_mode=enums.ParseMode.HTML)
+            await message.reply_text("Invalid!", parse_mode=enums.ParseMode.HTML)
             return
         await show_status(client, message, task_queue, page=0)
     
     @app.on_callback_query(filters.regex(r"^status_page:(.+):(.+)$"))
     async def status_callback(client: Client, callback_query: CallbackQuery):
         if callback_query.from_user.id not in admin_ids:
-            await callback_query.answer("❌ Unauthorized", show_alert=True)
+            await callback_query.answer("Invalid!", show_alert=True)
             return
         
         action, page_str = callback_query.data.split(":")[1:]

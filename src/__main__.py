@@ -47,7 +47,7 @@ async def main():
     @app.on_message(filters.command("encode") & filters.private)
     async def encode_private(client: Client, message: Message):
         if message.from_user.id not in config.admin_ids:
-            await message.reply_text("You are not authorized to use this command.")
+            await message.reply_text("Invalid!")
             return
             
         if not message.reply_to_message:

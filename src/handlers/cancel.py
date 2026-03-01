@@ -1,7 +1,9 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram import enums
-import re
+from src.utils.config import Config
+
+config=Config()
 
 worker_instance = None
 admin_ids = []
@@ -24,6 +26,13 @@ def setup_cancel_handlers(app: Client, task_queue):
     
     @app.on_message(filters.command("cancel") & filters.private)
     async def cancel_command(client: Client, message: Message):
+        if message.from_user.id not in config.admin_ids:
+            await message.reply_text("Invalid!")
+            return
+            
+        if not message.reply_to_message:
+            await message.reply_text("Please reply to a video file.")
+            return
         try:
             task_id_part = None
             

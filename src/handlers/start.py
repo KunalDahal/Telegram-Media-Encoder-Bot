@@ -20,7 +20,7 @@ Join the main channel for updates and tips!
 """
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Developer", url="https://t.me/subaru_bhai"),
+        [InlineKeyboardButton("Developer", url="https://t.me/aniindexadminbot"),
         InlineKeyboardButton(" Channel", url="https://t.me/AniIndex")]
     ])
     

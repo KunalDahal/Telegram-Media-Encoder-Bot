@@ -1,6 +1,5 @@
 from pyrogram import filters, enums
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-import os
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 async def help_command(client, message: Message):
     
@@ -45,7 +44,7 @@ Contact the developer if you face any issues.
 """
     
     keyboard = InlineKeyboardMarkup([
-    [InlineKeyboardButton("Developer", url="https://t.me/subaru_bhai")]
+    [InlineKeyboardButton("Developer", url="https://t.me/aniindexadminbot")]
 ])
     
     try:
