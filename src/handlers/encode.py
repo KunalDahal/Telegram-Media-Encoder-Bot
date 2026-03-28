@@ -1,5 +1,3 @@
-# encode.py
-
 import copy
 import os
 import re
@@ -53,22 +51,10 @@ def validate_filename_extension(filename: str) -> bool:
 
 
 def build_output_filename(filename: str, resolution: str, total_jobs: int) -> str:
-    """
-    Replace placeholder tokens in the filename with the actual resolution label.
-
-    Supported placeholders (case-insensitive):
-      {quality}  →  replaced inline          e.g. "[{quality}]" → "[1080p]"
-      {audio}    →  replaced inline          e.g. "{audio}-"    → "1080p-"
-
-    If no placeholder is found and there are multiple jobs, the resolution is
-    appended to the base name:  "file.mkv" → "file_1080p.mkv"
-    """
-    # {quality} – exact token replacement
     updated = re.sub(r"\{quality\}", resolution, filename, flags=re.IGNORECASE)
     if updated != filename:
         return updated
 
-    # {audio} – legacy token (with optional trailing dash)
     updated = re.sub(r"\{audio\}-", f"{resolution}-", filename, flags=re.IGNORECASE)
     if updated != filename:
         return updated
@@ -96,7 +82,6 @@ def get_selected_resolutions(settings: dict) -> list:
     if not normalized:
         normalized = ["1080p"]
 
-    # HDRip is always processed first (copy-only, fast), encode resolutions after
     ordered = [r for r in SUPPORTED_RESOLUTIONS if r in normalized]
     return ordered[:4]
 
@@ -223,6 +208,7 @@ async def process_encode_command(
         "current_job": 0,
         "current_stage": "queued",
         "thumbnail_path": settings.get("thumbnail_path", ""),
+        "watermark": settings_obj.get_watermark(),
         "settings_snapshot": settings,
     }
 

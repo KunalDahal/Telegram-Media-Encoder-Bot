@@ -27,7 +27,7 @@ class Uploader:
         send_type = self.task_data.get("send_type", "media")
         thumbnail_path = self.task_data.get("thumbnail_path", "")
 
-        task_folder = os.path.join("./bin/tmp", task_id)
+        task_folder = os.path.join("./src/bin/tmp", task_id)
         explicit_file_path = self.task_data.get("upload_file_path")
 
         if explicit_file_path and os.path.exists(explicit_file_path):

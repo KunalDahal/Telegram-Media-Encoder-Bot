@@ -101,7 +101,6 @@ async def show_status(
         elapsed = _format_elapsed(task.get("started_at"))
         task_status = task["status"]
 
-        # Job context (resolution + index) for active encoding/uploading
         job_label = _build_job_label(task)
 
         status_text += f"<b>Task {i}</b>\n"
@@ -290,7 +289,6 @@ def _get_upload_progress(task: dict) -> dict:
         "speed": 0,
         "eta": 0,
     }
-    # Prefer live upload_progress dict if present
     up = task.get("upload_progress", {})
     if up and up.get("total_size"):
         base.update(

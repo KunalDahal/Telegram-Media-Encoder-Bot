@@ -37,7 +37,6 @@ def setup_cancel_handlers(app: Client, task_queue):
             return
 
         # ── Parse task ID from command argument ───────────────────────────────
-        # Usage: /cancel <task_id>   (first 8 chars of the UUID are enough)
         if len(message.command) < 2:
             await message.reply_text(
                 "Usage: <code>/cancel &lt;task_id&gt;</code>\n"
@@ -57,7 +56,7 @@ def setup_cancel_handlers(app: Client, task_queue):
 
         if not matching_task_id:
             await message.reply_text(
-                f"❌ No task found matching <code>{task_id_part}</code>.",
+                f"No task found matching <code>{task_id_part}</code>.",
                 parse_mode=enums.ParseMode.HTML,
             )
             return
@@ -65,15 +64,14 @@ def setup_cancel_handlers(app: Client, task_queue):
         task = task_queue.get_task(matching_task_id)
         if not task:
             await message.reply_text(
-                f"❌ Task <code>{task_id_part}</code> no longer exists.",
+                f"Task <code>{task_id_part}</code> no longer exists.",
                 parse_mode=enums.ParseMode.HTML,
             )
             return
 
-        # Non-admins can only cancel their own tasks
         if user_id not in _admin_ids and task.get("user_id") != user_id:
             await message.reply_text(
-                "❌ You can only cancel your own tasks.",
+                "You can only cancel your own tasks.",
                 parse_mode=enums.ParseMode.HTML,
             )
             return
@@ -82,7 +80,7 @@ def setup_cancel_handlers(app: Client, task_queue):
         worker = get_worker_instance()
         if not worker:
             await message.reply_text(
-                "❌ Worker is not available.",
+                "Worker is not available.",
                 parse_mode=enums.ParseMode.HTML,
             )
             return
@@ -91,6 +89,6 @@ def setup_cancel_handlers(app: Client, task_queue):
             await worker.cancel_task(matching_task_id)
         except Exception as e:
             await message.reply_text(
-                f"❌ Failed to cancel task: <code>{e}</code>",
+                f"Failed to cancel task: <code>{e}</code>",
                 parse_mode=enums.ParseMode.HTML,
             )

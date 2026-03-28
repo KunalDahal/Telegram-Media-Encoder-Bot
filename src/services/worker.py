@@ -11,8 +11,8 @@ class Worker:
         self.user_settings_getter = user_settings_getter
         self.ffmpeg = ffmpeg
         self.client = client
-        self.temp_base = "./bin/tmp"
-        self.thumbnails_dir = "./bin/thumbnails"
+        self.temp_base = "./src/bin/tmp"
+        self.thumbnails_dir = "./src/bin/thumbnails"
         self.running = False
         self.current_task = None
         self.current_task_id = None
@@ -187,16 +187,18 @@ class Worker:
                 self._set_stage(task, "encoding", _encode_progress_base(job_index, total_jobs))
 
                 job_settings = {
-                    "resolution": resolution,
+                    "resolution":      resolution,
                     "processing_mode": processing_mode,
-                    "crf": job.get("crf"),
-                    "preset": job.get("preset"),
-                    "codec": job.get("codec"),
-                    "audio_bitrate": job.get("audio_bitrate"),
-                    "metadata": job.get("metadata", {}),
-                    "thumbnail_path": job.get("thumbnail_path", ""),
-                    "send_type": job.get("send_type", "media"),
-                    "media_info": task.get("media_info", {}),
+                    "crf":             job.get("crf"),
+                    "preset":          job.get("preset"),
+                    "codec":           job.get("codec"),
+                    "audio_bitrate":   job.get("audio_bitrate"),
+                    "metadata":        job.get("metadata", {}),
+                    "thumbnail_path":  job.get("thumbnail_path", ""),
+                    "send_type":       job.get("send_type", "media"),
+                    "media_info":      task.get("media_info", {}),
+                    # Watermark is skipped automatically by FFmpeg for HDRip/metadata_only
+                    "watermark":       task.get("watermark"),
                 }
 
                 encoded_path = await encoder.encode(
