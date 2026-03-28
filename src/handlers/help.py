@@ -1,68 +1,76 @@
-from pyrogram import filters, enums
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import enums, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-async def help_command(client, message: Message):
-    
-    help_text = """
-<blockquote><b>Bot Commands Guide</b></blockquote>
-Here’s a complete overview of the bot and its features.
 
-<blockquote><b>Basic Commands:</b></blockquote>
-• <b>/start – Start the bot.</b>
-• <b>/help – Show the help message.</b>
+HELP_TEXT = """
+<b>📦 Encoding Bot — Commands</b>
 
-<blockquote><b>Other Commands:</b></blockquote>
+<blockquote><b>🎬 Encoding</b>
+<b>/encode</b> <code>[filename.ext]</code>
+Reply to a video file to queue it for encoding.
 
-• <b>/us – Configure your custom encoding settings</b>
-- Set video resolution, CRF, preset, codec
-- Set audio bitrate
-- Set metadata such as title, author, encoder
-- Choose file type to send: Telegram media, Telegram video, or Telegram document
-- Set a custom thumbnail
-<i>With /us, you can fully customize how your files are encoded and sent.</i>
+• Without a filename → uses the original file name
+• With a filename → renames the output
+• Supports <code>{quality}</code> placeholder in filenames:
+  <code>/encode [S01E01] Show [{quality}] Sub.mkv</code>
+  → produces <code>[S01E01] Show [1080p] Sub.mkv</code>, <code>[720p]</code>, etc.
 
-• <b>/encode filename.ext – Encode a replied video</b>
-Reply to a video and type <b>/encode</b> to use the original filename.
-Or specify a filename with extension like <b>/encode myvideo.mp4</b>.
-<i>The bot will encode your file according to your /us settings and send it back.</i>
+Each file is processed <b>sequentially</b>:
+<code>Download → Encode → Upload</code> per resolution, one at a time.
+HDRip skips re-encoding — only metadata, rename and thumbnail are applied.</blockquote>
 
-• <b>/status – Check the progress of encoding tasks</b>
-Shows download, encoding, and upload progress for your files.
+<blockquote><b>⚙️ Settings  /es</b>
+Opens the full settings panel.
 
-<blockquote><b>Upcoming Features:</b></blockquote>
-• Parallel encoding – handle multiple files at once
-• Batch Rename – rename files in batch
-• Watermark – add watermark to full video or for a short duration
+<b>📐 Resolutions</b> — select 1 to 4 per file
+<code>HDRip · 1080p · 720p · 480p</code>
 
-<blockquote><b>Notes:</b></blockquote>
-• All commands work in private chat only
-• Only authorized admins can use this bot
-• Large files may take time to process
+<b>🎛 Quality Profiles</b> — per-resolution settings
+Each resolution has its own independent profile:
+  • CRF (0–58, lower = better quality)
+  • Preset (ultrafast → veryslow)
+  • Codec (H.264 / H.265)
+  • Audio bitrate (96k – 320k)
 
-<blockquote><b>Need help?</b></blockquote>
-Contact the developer if you face any issues.
+<b>📤 Send Type</b> — <code>Media</code> or <code>Document</code>
+
+<b>🏷 Metadata</b> — embed Title, Author, Encoder tags
+
+<b>🖼 Thumbnail</b> — send a photo to set a custom thumbnail</blockquote>
+
+<blockquote><b>📊 Queue  /status</b>
+Shows all active and queued tasks with:
+• Current stage (Downloading / Encoding / Uploading)
+• Active resolution and job index (e.g. Job 2/3)
+• Speed, ETA, elapsed time
+• Bot CPU / RAM / Disk stats</blockquote>
+
+<blockquote><b>🚫 Cancel  /cancel</b> <code>&lt;task_id&gt;</code>
+Cancel a queued or active task by its ID.
+Task IDs are shown in /status and in the queue confirmation message.</blockquote>
+
+<blockquote><b>📝 Notes</b>
+• Private chat only
+• Admin access required
+• Files processed one at a time — no parallel jobs
+• HDRip = copy-only (no re-encode), just metadata + thumbnail</blockquote>
 """
-    
-    keyboard = InlineKeyboardMarkup([
-    [InlineKeyboardButton("Developer", url="https://t.me/aniindexadminbot")]
-])
-    
-    try:
-        await message.reply_text(
-                text=help_text,
-                reply_markup=keyboard,
-                parse_mode=enums.ParseMode.HTML
-            )
-    except Exception as e:
-        print(f"Error sending help: {e}")
-        await message.reply_text(
-            text="/start to begin\nUse /encode to encode videos\nUse /status to check queue",
-            reply_markup=keyboard
-        )
 
 
 def setup_help_handlers(app):
     @app.on_message(filters.command("help") & filters.private)
     async def help_handler(client, message: Message):
-        await help_command(client, message)
-    
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Developer", url="https://t.me/renzobot")]
+        ])
+        try:
+            await message.reply_text(
+                text=HELP_TEXT,
+                reply_markup=keyboard,
+                parse_mode=enums.ParseMode.HTML,
+            )
+        except Exception as e:
+            print(f"Error sending help: {e}")
+            await message.reply_text(
+                "Use /encode to queue a video, /es for settings, /status for queue."
+            )
