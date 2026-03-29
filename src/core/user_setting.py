@@ -8,9 +8,9 @@ VALID_RESOLUTIONS = ["HDRip", "1080p", "720p", "480p"]
 RESOLUTION_ALIASES = {
     "hdrip": "HDRip",
     "1080p": "1080p",
-    "720p": "720p",
-    "480p": "480p",
-    "480": "480p",
+    "720p":  "720p",
+    "480p":  "480p",
+    "480":   "480p",
 }
 
 DEFAULT_PROFILES = {
@@ -44,8 +44,8 @@ VALID_WM_POSITIONS = {
 
 def _extract_font_name(font_path: str) -> str:
     try:
-        from fontTools.ttLib import TTFont 
-        tt = TTFont(font_path, fontNumber=0)
+        from fontTools.ttLib import TTFont
+        tt         = TTFont(font_path, fontNumber=0)
         name_table = tt["name"]
         for name_id in (4, 1):
             record = name_table.getName(name_id, 3, 1, 0x0409)
@@ -59,19 +59,24 @@ def _extract_font_name(font_path: str) -> str:
                     pass
     except Exception:
         pass
-
     return os.path.splitext(os.path.basename(font_path))[0]
 
 
 class UserSettings:
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int, paths=None):
         self.user_id = user_id
-        self.db_folder = "./src/bin/users"
-        self.thumbnails_folder = "./src/bin/thumbnails"
-        self.fonts_folder = "./src/bin/fonts"
-        os.makedirs(self.db_folder, exist_ok=True)
-        os.makedirs(self.thumbnails_folder, exist_ok=True)
-        os.makedirs(self.fonts_folder, exist_ok=True)
+        if paths is not None:
+            self.db_folder          = paths.users
+            self.thumbnails_folder  = paths.thumbnails
+            self.fonts_folder       = paths.fonts
+        else:
+            self.db_folder         = "./src/bin/users"
+            self.thumbnails_folder = "./src/bin/thumbnails"
+            self.fonts_folder      = "./src/bin/fonts"
+
+        os.makedirs(self.db_folder,         exist_ok=True)
+        os.makedirs(self.thumbnails_folder,  exist_ok=True)
+        os.makedirs(self.fonts_folder,       exist_ok=True)
 
         self.storage_path = os.path.join(self.db_folder, f"{self.user_id}.json")
         self.data: Dict[str, Any] = {}
@@ -94,7 +99,6 @@ class UserSettings:
             self.data["metadata"] = {"title": "", "author": "", "encoder": ""}
         if "send_type" not in self.data:
             self.data["send_type"] = "media"
-
         if "profiles" not in self.data:
             self.data["profiles"] = {res: p.copy() for res, p in DEFAULT_PROFILES.items()}
         else:
@@ -107,6 +111,8 @@ class UserSettings:
             for key, val in DEFAULT_WATERMARK.items():
                 if key not in self.data["watermark"]:
                     self.data["watermark"][key] = val
+        if "format" not in self.data:
+            self.data["format"] = "{title} S{season}E{episode} [{quality}] [{audio}].mkv"
 
         self.data["resolutions"] = self._normalize_resolutions(
             self.data.get("resolutions", self.data.get("resolution"))
@@ -138,6 +144,7 @@ class UserSettings:
             "thumbnail_path": "",
             "profiles":       {res: p.copy() for res, p in DEFAULT_PROFILES.items()},
             "watermark":      DEFAULT_WATERMARK.copy(),
+            "format":         "{title} S{season}E{episode} [{quality}] [{audio}].mkv",
         }
 
     def _normalize_resolutions(self, values) -> list:
@@ -185,9 +192,7 @@ class UserSettings:
                 self.data["watermark"][key] = val
         return self.data["watermark"]
 
-    def get_effective_settings(
-        self, resolution: str, base_overrides: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
+    def get_effective_settings(self, resolution: str, base_overrides: Dict[str, Any] = None) -> Dict[str, Any]:
         profile = self.get_profile(resolution)
         if resolution == "HDRip":
             effective = {
@@ -227,7 +232,7 @@ class UserSettings:
 
     def toggle_resolution(self, resolution: str):
         normalized = self._normalize_resolutions([resolution])[0]
-        selected = list(self.data.get("resolutions", ["1080p"]))
+        selected   = list(self.data.get("resolutions", ["1080p"]))
         if normalized in selected:
             if len(selected) == 1:
                 return False, "At least one resolution must stay selected."
@@ -285,11 +290,11 @@ class UserSettings:
             return "default"
 
         font_filename = f"font_{self.user_id}_{uuid.uuid4().hex[:8]}{ext}"
-        dest_path = os.path.abspath(os.path.join(self.fonts_folder, font_filename))
+        dest_path     = os.path.abspath(os.path.join(self.fonts_folder, font_filename))
         shutil.copy2(tmp_path, dest_path)
 
-        old_path = self.data.get("watermark", {}).get("font_path", "")
-        fonts_abs = os.path.abspath(self.fonts_folder)
+        old_path   = self.data.get("watermark", {}).get("font_path", "")
+        fonts_abs  = os.path.abspath(self.fonts_folder)
         if (
             old_path
             and old_path != dest_path
@@ -317,9 +322,9 @@ class UserSettings:
 
     def set_thumbnail(self, path: str):
         if path and os.path.exists(path):
-            ext = os.path.splitext(path)[1]
-            thumb_filename = f"thumb_{self.user_id}_{uuid.uuid4().hex[:8]}{ext}"
-            persistent_path = os.path.join(self.thumbnails_folder, thumb_filename)
+            ext              = os.path.splitext(path)[1]
+            thumb_filename   = f"thumb_{self.user_id}_{uuid.uuid4().hex[:8]}{ext}"
+            persistent_path  = os.path.join(self.thumbnails_folder, thumb_filename)
             shutil.copy2(path, persistent_path)
             old_thumb = self.data.get("thumbnail_path")
             if (
@@ -337,4 +342,11 @@ class UserSettings:
 
     def reset(self):
         self.data = self._get_default_settings()
+        self._save()
+
+    def get_format(self) -> str:
+        return self.data.get("format", "{title} S{season}E{episode} [{quality}] [{audio}].mkv")
+
+    def set_format(self, fmt: str):
+        self.data["format"] = fmt
         self._save()

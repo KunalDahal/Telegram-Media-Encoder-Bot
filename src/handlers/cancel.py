@@ -1,8 +1,5 @@
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message
-from src.utils.config import Config
-
-config = Config()
 
 _worker_instance = None
 _admin_ids = []
@@ -26,17 +23,36 @@ def get_admin_ids():
     return _admin_ids
 
 
-def setup_cancel_handlers(app: Client, task_queue):
+async def _check_access(client, message: Message) -> bool:
+    user_id = message.from_user.id
 
-    @app.on_message(filters.command("cancel") & filters.private)
+    if user_id not in _admin_ids:
+        await message.reply_text("Dukhi Atma!😔")
+        return False
+
+    try:
+        await client.get_chat(user_id)
+    except Exception:
+        bot_username = (await client.get_me()).username
+        await message.reply_text(
+            f"⚠️ Please start the bot in DM first.\n"
+            f"👉 @{bot_username} — press <b>Start</b>, then try again.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+        return False
+
+    return True
+
+
+def setup_cancel_handlers(app: Client, task_queue, config):
+
+    allowed_group_filter = filters.chat(config.allowed_group_ids)
+
+    @app.on_message(filters.command(["cancel", "c"]) & allowed_group_filter)
     async def cancel_command(client: Client, message: Message):
-        user_id = message.from_user.id
-
-        if user_id not in _admin_ids:
-            await message.reply_text("Invalid!")
+        if not await _check_access(client, message):
             return
 
-        # ── Parse task ID from command argument ───────────────────────────────
         if len(message.command) < 2:
             await message.reply_text(
                 "Usage: <code>/cancel &lt;task_id&gt;</code>\n"
@@ -47,7 +63,6 @@ def setup_cancel_handlers(app: Client, task_queue):
 
         task_id_part = message.command[1].strip()
 
-        # ── Find matching task ────────────────────────────────────────────────
         matching_task_id = None
         for tid in list(task_queue.tasks.keys()):
             if tid.startswith(task_id_part):
@@ -69,6 +84,7 @@ def setup_cancel_handlers(app: Client, task_queue):
             )
             return
 
+        user_id = message.from_user.id
         if user_id not in _admin_ids and task.get("user_id") != user_id:
             await message.reply_text(
                 "You can only cancel your own tasks.",
@@ -76,7 +92,6 @@ def setup_cancel_handlers(app: Client, task_queue):
             )
             return
 
-        # ── Delegate to worker ────────────────────────────────────────────────
         worker = get_worker_instance()
         if not worker:
             await message.reply_text(
@@ -87,6 +102,10 @@ def setup_cancel_handlers(app: Client, task_queue):
 
         try:
             await worker.cancel_task(matching_task_id)
+            await message.reply_text(
+                f"✅ Task <code>{task_id_part}</code> cancelled.",
+                parse_mode=enums.ParseMode.HTML,
+            )
         except Exception as e:
             await message.reply_text(
                 f"Failed to cancel task: <code>{e}</code>",

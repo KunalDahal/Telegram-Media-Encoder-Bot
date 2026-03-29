@@ -1,37 +1,95 @@
 import os
+import shutil
+import sys
 from typing import List
 from dotenv import load_dotenv
 
 
+def _find_binary(name: str, local_dir: str) -> str:
+    """
+    Resolve a binary path in priority order:
+      1. System PATH  (works if ffmpeg is installed anywhere on the machine)
+      2. Local bin/   folder next to the project (with .exe on Windows)
+      3. Bare name    (last resort — will surface a clean error at runtime)
+    """
+    # 1. PATH look-up — covers "ffmpeg is elsewhere on my system"
+    found = shutil.which(name)
+    if found:
+        return found
+
+    # 2. Local bin/ folder — covers a bundled binary shipped with the bot
+    exe_suffix = ".exe" if sys.platform == "win32" else ""
+    local_path = os.path.join(local_dir, f"{name}{exe_suffix}")
+    if os.path.isfile(local_path):
+        return local_path
+
+    # 3. Give back the bare name so FFmpeg.__init__ can surface a clear error
+    return name
+
+
+class Paths:
+
+    def __init__(self, base_dir: str):
+        self.base       = base_dir
+        self.bin        = os.path.join(base_dir, "bin")
+        self.tmp        = os.path.join(base_dir, "bin", "tmp")
+        self.logs       = os.path.join(base_dir, "bin", "logs")
+        self.thumbnails = os.path.join(base_dir, "bin", "thumbnails")
+        self.users      = os.path.join(base_dir, "bin", "users")
+        self.fonts      = os.path.join(base_dir, "bin", "fonts")
+        self.templates  = os.path.join(base_dir, "templates")
+
+        bin_dir         = os.path.join(base_dir, "bin")
+        self.ffmpeg     = _find_binary("ffmpeg",  bin_dir)
+        self.ffprobe    = _find_binary("ffprobe", bin_dir)
+
+        # Static assets
+        self.start_image   = os.path.join(base_dir, "templates", "start.png")
+        self.help_banner   = os.path.join(base_dir, "templates", "help.jpg")
+        self.default_thumb = os.path.join(base_dir, "bin", "default.jpg")
+
+    def makedirs(self):
+        for d in (self.tmp, self.logs, self.thumbnails, self.users, self.fonts):
+            os.makedirs(d, exist_ok=True)
+
+
 class Config:
+    _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     def __init__(self):
         load_dotenv()
-        
+
         self.bot_token: str = os.getenv("BOT_TOKEN", "")
-        self.api_id: int = int(os.getenv("API_ID", "0"))
-        self.api_hash: str = os.getenv("API_HASH", "")
-        
-        allowed_group_ids_str = os.getenv("ALLOWED_GROUP_IDS", "0")
-        self.allowed_group_ids: List[int] = []
-        if allowed_group_ids_str:
-            try:
-                self.allowed_group_ids = [int(x.strip()) for x in allowed_group_ids_str.split(",") if x.strip()]
-            except ValueError:
-                pass
-        
-        self.ffmpeg_path: str = "./src/bin/ffmpeg"
-        self.temp_dir: str = "./src/bin/tmp"
-        
-        admin_ids_str = os.getenv("ADMIN_IDS", "")
-        self.admin_ids: List[int] = []
-        if admin_ids_str:
-            try:
-                self.admin_ids = [int(x.strip()) for x in admin_ids_str.split(",") if x.strip()]
-            except ValueError:
-                pass
-        
+        self.api_id:    int = int(os.getenv("API_ID", "0"))
+        self.api_hash:  str = os.getenv("API_HASH", "")
+
+        self.allowed_group_ids: List[int] = self._parse_int_list(
+            os.getenv("ALLOWED_GROUP_IDS", "0")
+        )
+        self.admin_ids: List[int] = self._parse_int_list(
+            os.getenv("ADMIN_IDS", "")
+        )
+
+        self.paths = Paths(self._SRC_DIR)
+
         self._validate()
-    
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_int_list(raw: str) -> List[int]:
+        if not raw:
+            return []
+        result = []
+        for part in raw.split(","):
+            part = part.strip()
+            if part:
+                try:
+                    result.append(int(part))
+                except ValueError:
+                    pass
+        return result
+
     def _validate(self):
         if not self.bot_token:
             raise ValueError("BOT_TOKEN is required")

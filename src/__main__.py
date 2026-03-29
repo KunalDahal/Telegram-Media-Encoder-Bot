@@ -28,59 +28,58 @@ from src.handlers.encode import setup_encode_handlers
 from src.handlers.settings import setup_settings_handlers
 from src.handlers.status import setup_status_handlers
 from src.handlers.start import setup_start_handler
-from src.handlers.help import setup_help_handlers
 from src.handlers.cancel import setup_cancel_handlers, set_worker_instance, set_admin_ids
+from src.handlers.mi import setup_mediainfo_handlers
+from src.handlers.rename import setup_rename_handler
+from src.handlers.bencode import setup_batch_encode_handlers
+from src.handlers.brename import setup_batch_rename_handlers
 
 logging.basicConfig(level=logging.INFO)
-
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-os.makedirs(os.path.join(_BASE_DIR, "bin", "logs"),       exist_ok=True)
-os.makedirs(os.path.join(_BASE_DIR, "bin", "tmp"),        exist_ok=True)
-os.makedirs(os.path.join(_BASE_DIR, "bin", "thumbnails"), exist_ok=True)
-os.makedirs(os.path.join(_BASE_DIR, "bin", "users"),      exist_ok=True)
 
 
 async def main():
     config = Config()
-    _base = os.path.dirname(os.path.abspath(__file__))
-    _session_dir = os.path.join(_base, "bin", "logs")
-    os.makedirs(_session_dir, exist_ok=True)
+
+    config.paths.makedirs()
 
     app = Client(
         "encode_bot_session",
         api_id=config.api_id,
         api_hash=config.api_hash,
         bot_token=config.bot_token,
-        workdir=_session_dir,
+        workdir=config.paths.logs,
         workers=16,
     )
 
     task_queue = TaskQueue()
-    ffmpeg = FFmpeg()
+    ffmpeg = FFmpeg(
+        ffmpeg_path=config.paths.ffmpeg,
+        ffprobe_path=config.paths.ffprobe,
+    )
 
     _user_settings_cache: dict[int, UserSettings] = {}
 
     def get_user_settings(user_id: int) -> UserSettings:
         if user_id not in _user_settings_cache:
-            _user_settings_cache[user_id] = UserSettings(user_id)
+            _user_settings_cache[user_id] = UserSettings(user_id, config.paths)
         return _user_settings_cache[user_id]
 
     await app.start()
 
-    # ── Register handlers ────────────────────────
+    # ── Register handlers ─────────────────────────────────────────────────────
 
-
-    setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings)
-
-    setup_cancel_handlers(app, task_queue)
-    setup_status_handlers(app=app, task_queue=task_queue, admin_ids=config.admin_ids)
-
-    setup_start_handler(app)
-    setup_help_handlers(app)
-    setup_settings_handlers(app=app, user_settings=get_user_settings)
+    setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
+    setup_rename_handler(app, task_queue, get_user_settings, config)
+    setup_mediainfo_handlers(app=app, config=config)
+    setup_cancel_handlers(app, task_queue, config)
+    setup_status_handlers(app=app, task_queue=task_queue, admin_ids=config.admin_ids, config=config)
+    setup_start_handler(app, config)
+    setup_batch_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
+    setup_batch_rename_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
+    setup_settings_handlers(app=app, user_settings=get_user_settings, config=config)
 
     # ── Worker ────────────────────────────────────────────────────────────────
-    worker = Worker(task_queue, get_user_settings, ffmpeg, app)
+    worker = Worker(task_queue, get_user_settings, ffmpeg, app, config)
     set_worker_instance(worker)
     set_admin_ids(config.admin_ids)
 
@@ -92,7 +91,7 @@ async def main():
     ╔══════════════════════════════════╗
     ║  @{me.username:<31}║
     ╠══════════════════════════════════╣
-    ║  /start   – Welcome              ║
+    ║  /start   – Welcome (DM only)    ║
     ║  /help    – Help menu            ║
     ║  /es      – Encoding settings    ║
     ║  /encode  – Queue a file         ║
