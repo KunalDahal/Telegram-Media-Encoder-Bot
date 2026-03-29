@@ -33,21 +33,25 @@ from src.handlers.cancel import setup_cancel_handlers, set_worker_instance, set_
 
 logging.basicConfig(level=logging.INFO)
 
-os.makedirs("./src/bin/logs", exist_ok=True)
-os.makedirs("./src/bin/tmp", exist_ok=True)
-os.makedirs("./src/bin/thumbnails", exist_ok=True)
-os.makedirs("./src/bin/users", exist_ok=True)
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(os.path.join(_BASE_DIR, "bin", "logs"),       exist_ok=True)
+os.makedirs(os.path.join(_BASE_DIR, "bin", "tmp"),        exist_ok=True)
+os.makedirs(os.path.join(_BASE_DIR, "bin", "thumbnails"), exist_ok=True)
+os.makedirs(os.path.join(_BASE_DIR, "bin", "users"),      exist_ok=True)
 
 
 async def main():
     config = Config()
+    _base = os.path.dirname(os.path.abspath(__file__))
+    _session_dir = os.path.join(_base, "bin", "logs")
+    os.makedirs(_session_dir, exist_ok=True)
 
     app = Client(
         "encode_bot_session",
         api_id=config.api_id,
         api_hash=config.api_hash,
         bot_token=config.bot_token,
-        workdir="./src/bin/logs/",
+        workdir=_session_dir,
         workers=16,
     )
 
@@ -63,13 +67,16 @@ async def main():
 
     await app.start()
 
-    # ── Register handlers (order matters for Pyrogram) ────────────────────────
+    # ── Register handlers ────────────────────────
+
+
+    setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings)
+
+    setup_cancel_handlers(app, task_queue)
+    setup_status_handlers(app=app, task_queue=task_queue, admin_ids=config.admin_ids)
 
     setup_start_handler(app)
     setup_help_handlers(app)
-    setup_cancel_handlers(app, task_queue)
-    setup_status_handlers(app=app, task_queue=task_queue, admin_ids=config.admin_ids)
-    setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings)
     setup_settings_handlers(app=app, user_settings=get_user_settings)
 
     # ── Worker ────────────────────────────────────────────────────────────────
@@ -89,6 +96,7 @@ async def main():
     ║  /help    – Help menu            ║
     ║  /es      – Encoding settings    ║
     ║  /encode  – Queue a file         ║
+    ║  /rename  – Rename a file        ║
     ║  /status  – Queue status         ║
     ║  /cancel  – Cancel a task        ║
     ╚══════════════════════════════════╝

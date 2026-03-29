@@ -3,57 +3,149 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 
 HELP_TEXT = """
-<b>📦 Encoding Bot — Commands</b>
+<b>EncodeBot Help</b>
 
-<blockquote><b>🎬 Encoding</b>
-<b>/encode</b> <code>[filename.ext]</code>
-Reply to a video file to queue it for encoding.
+<i>Command Reference and Usage Guide</i>
 
-• Without a filename → uses the original file name
-• With a filename → renames the output
-• Supports <code>{quality}</code> placeholder in filenames:
-  <code>/encode [S01E01] Show [{quality}] Sub.mkv</code>
-  → produces <code>[S01E01] Show [1080p] Sub.mkv</code>, <code>[720p]</code>, etc.
+════════════════════════════
+<b>◆ /es</b>
+Configure all encoding settings before using /encode.
+The settings menu includes the following options:
 
-Each file is processed <b>sequentially</b>:
-<code>Download → Encode → Upload</code> per resolution, one at a time.
-HDRip skips re-encoding — only metadata, rename and thumbnail are applied.</blockquote>
+◇ Resolution Selection  
+Select one or more output resolutions. When you run /encode, the file will be encoded into all selected resolutions.
 
-<blockquote><b>⚙️ Settings  /es</b>
-Opens the full settings panel.
+Example:
+<code>1080p, 720p, 480p</code>
 
-<b>📐 Resolutions</b> — select 1 to 4 per file
-<code>HDRip · 1080p · 720p · 480p</code>
+◇ Quality Profile  
+For every selected resolution, you can set a separate:
 
-<b>🎛 Quality Profiles</b> — per-resolution settings
-Each resolution has its own independent profile:
-  • CRF (0–58, lower = better quality)
-  • Preset (ultrafast → veryslow)
-  • Codec (H.264 / H.265)
-  • Audio bitrate (96k – 320k)
+• CRF  
+• Preset  
+• Video Codec  
+• Audio Codec  
 
-<b>📤 Send Type</b> — <code>Media</code> or <code>Document</code>
+This allows different quality profiles for different resolutions.
 
-<b>🏷 Metadata</b> — embed Title, Author, Encoder tags
+Example:
 
-<b>🖼 Thumbnail</b> — send a photo to set a custom thumbnail</blockquote>
+<code>1080p → CRF 18 | preset slow | h264 | aac</code>
+<code>720p  → CRF 20 | preset medium | h264 | aac</code>
+<code>480p  → CRF 24 | preset fast | h265 | aac</code>
 
-<blockquote><b>📊 Queue  /status</b>
-Shows all active and queued tasks with:
-• Current stage (Downloading / Encoding / Uploading)
-• Active resolution and job index (e.g. Job 2/3)
-• Speed, ETA, elapsed time
-• Bot CPU / RAM / Disk stats</blockquote>
+◇ Send Type  
+Choose how encoded files are sent:
 
-<blockquote><b>🚫 Cancel  /cancel</b> <code>&lt;task_id&gt;</code>
-Cancel a queued or active task by its ID.
-Task IDs are shown in /status and in the queue confirmation message.</blockquote>
+• Media  
+• Document
 
-<blockquote><b>📝 Notes</b>
-• Private chat only
-• Admin access required
-• Files processed one at a time — no parallel jobs
-• HDRip = copy-only (no re-encode), just metadata + thumbnail</blockquote>
+◇ Metadata  
+Set custom metadata for the output file.
+
+Examples:
+<code>Title</code>
+<code>Author</code>
+<code>Source</code>
+
+◇ Thumbnail  
+Set a custom thumbnail that will be used for encoded or renamed files.
+
+◇ Watermark  
+Customize watermark settings completely.
+
+Available options include:
+
+• Text  
+• Font  
+• Font Size  
+• Text Color  
+• Padding  
+• Position  
+• Start Time  
+• End Time
+
+You may adjust the watermark design according to your own preference.
+
+════════════════════════════
+
+<b>◆ /encode &lt;filename&gt;</b>
+
+Reply to a video file with /encode.
+
+The filename must include:
+
+◇ A valid file extension
+◇ A quality placeholder
+
+The quality placeholder will automatically be replaced with each selected resolution.
+
+Example:
+
+<code>/encode Movie [quality].mkv</code>
+
+If your selected resolutions are:
+
+<code>1080p, 720p, 480p</code>
+
+The generated files will be:
+
+<code>Movie 1080p.mkv</code>
+<code>Movie 720p.mkv</code>
+<code>Movie 480p.mkv</code>
+
+════════════════════════════
+
+<b>◆ /rename &lt;filename&gt;</b>
+
+Reply to a file with /rename followed by the new filename.
+
+Example:
+
+<code>/rename New Movie.mkv</code>
+
+While renaming, the following settings may also be applied:
+
+◇ Thumbnail  
+◇ Metadata  
+◇ Watermark
+
+════════════════════════════
+
+<b>◆ /status</b>
+
+Shows all currently running tasks.
+
+The status page includes:
+
+• Current task state  
+• Active resolution  
+• Progress  
+• Speed  
+• ETA  
+• Queue position
+
+════════════════════════════
+
+<b>◆ /start</b>
+
+Displays the introduction and basic information about EncodeBot.
+
+════════════════════════════
+
+<b>◆ /help</b>
+
+Displays this help message.
+
+════════════════════════════
+
+<b>◇ Notes</b>
+
+• Configure your settings first using /es  
+• The quality placeholder is required when using /encode  
+• A valid file extension must always be included  
+• Multiple resolutions can be generated from a single command  
+• Thumbnail, metadata and watermark settings apply to both encoding and renaming
 """
 
 

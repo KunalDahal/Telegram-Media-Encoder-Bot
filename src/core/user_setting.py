@@ -23,14 +23,16 @@ DEFAULT_PROFILES = {
 DEFAULT_WATERMARK = {
     "enabled":     False,
     "text":        "",
-    "color":       "white",    
-    "font_path":   "",          
-    "font_name":   "default",     
-    "timing_mode": "range",       
-    "start":       0,            
-    "end":         0,            
-    "duration":    30,            
-    "position":    "bot_right",     
+    "color":       "white",
+    "font_path":   "",
+    "font_name":   "default",
+    "font_size":   24,
+    "padding":     7,
+    "timing_mode": "range",
+    "start":       0,
+    "end":         0,
+    "duration":    30,
+    "position":    "bot_right",
 }
 
 VALID_WM_POSITIONS = {

@@ -4,6 +4,9 @@ import os
 import shutil
 from datetime import datetime
 
+# Absolute path to src/ regardless of where the process is launched from
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 class Worker:
     def __init__(self, task_queue, user_settings_getter, ffmpeg, client):
@@ -11,8 +14,8 @@ class Worker:
         self.user_settings_getter = user_settings_getter
         self.ffmpeg = ffmpeg
         self.client = client
-        self.temp_base = "./src/bin/tmp"
-        self.thumbnails_dir = "./src/bin/thumbnails"
+        self.temp_base = os.path.join(_SRC_DIR, "bin", "tmp")
+        self.thumbnails_dir = os.path.join(_SRC_DIR, "bin", "thumbnails")
         self.running = False
         self.current_task = None
         self.current_task_id = None
@@ -98,11 +101,6 @@ class Worker:
     # ── Stage tracker helper ──────────────────────────────────────────────────
 
     def _set_stage(self, task: dict, stage: str, progress: int = None):
-        """
-        Update both the in-memory task dict and the queue's status tracker.
-        ``stage`` should be one of:
-            queued | downloading | encoding | uploading
-        """
         task["current_stage"] = stage
         self.task_queue.update_status(
             task["task_id"], stage, progress if progress is not None else task.get("progress", 0)
@@ -111,15 +109,6 @@ class Worker:
     # ── Main processor ────────────────────────────────────────────────────────
 
     async def process_task(self, task: dict):
-        """
-        Sequential pipeline for one task (one source file, N resolution jobs):
-
-            Download source
-            For each job (HDRip → 1080p → 720p → 480p):
-                Encode  (or copy+metadata for HDRip)
-                Upload
-            Cleanup
-        """
         task_id = task["task_id"]
         task_folder = os.path.join(self.temp_base, task_id)
 
@@ -140,10 +129,8 @@ class Worker:
             if not downloaded_path or not os.path.exists(downloaded_path):
                 raise Exception("Download failed: file not found after download")
 
-            # Probe once; share across all jobs
             task["media_info"] = await self.ffmpeg.probe_media(downloaded_path)
 
-            # ── 2. Build jobs (fallback for older tasks without "jobs" key) ───
             jobs = task.get("jobs") or [
                 {
                     "resolution": task.get("resolution", "1080p"),
@@ -177,7 +164,6 @@ class Worker:
                 output_filename = job["output_filename"]
                 processing_mode = job.get("processing_mode", "encode")
 
-                # Update task fields so /status can display the active resolution
                 task["current_job"] = job_index
                 task["resolution"] = resolution
                 task["output_filename"] = output_filename
@@ -196,8 +182,7 @@ class Worker:
                     "metadata":        job.get("metadata", {}),
                     "thumbnail_path":  job.get("thumbnail_path", ""),
                     "send_type":       job.get("send_type", "media"),
-                    "media_info":      task.get("media_info", {}),
-                    # Watermark is skipped automatically by FFmpeg for HDRip/metadata_only
+                    "media_info":      task.get("media_info", {}),\
                     "watermark":       task.get("watermark"),
                 }
 
@@ -223,7 +208,6 @@ class Worker:
                 uploader = Uploader(self.client, task, self.task_queue)
                 await uploader.upload()
 
-                # Clean up encoded file immediately after upload
                 task.pop("upload_file_path", None)
                 if os.path.exists(encoded_path):
                     try:
@@ -238,13 +222,12 @@ class Worker:
             res_list = " · ".join(job["resolution"] for job in jobs)
             await self.notify_user(
                 task["user_id"],
-                f"✅ Task `{task_id[:8]}` completed.\n"
-                f"Resolutions: {res_list}  ({total_jobs} file{'s' if total_jobs > 1 else ''})",
+                f"Task `{task_id[:8]}` completed.\n",
             )
 
         except asyncio.CancelledError:
             await self.notify_user(
-                task["user_id"], f"🚫 Task `{task_id[:8]}` was cancelled."
+                task["user_id"], f"Task `{task_id[:8]}` was cancelled."
             )
             self.task_queue.remove_task(task_id)
 
@@ -258,7 +241,6 @@ class Worker:
             self.task_queue.remove_task(task_id)
 
         finally:
-            # Remove any encoded files that weren't cleaned up mid-loop
             for file_path in encoded_paths:
                 if file_path and os.path.exists(file_path):
                     try:
@@ -266,14 +248,12 @@ class Worker:
                     except Exception:
                         pass
 
-            # Remove downloaded source
             if downloaded_path and os.path.exists(downloaded_path):
                 try:
                     os.remove(downloaded_path)
                 except Exception:
                     pass
 
-            # Remove entire task temp folder
             if os.path.exists(task_folder):
                 try:
                     shutil.rmtree(task_folder)
@@ -296,10 +276,7 @@ class Worker:
 # ── Progress helpers ──────────────────────────────────────────────────────────
 
 def _encode_progress_base(job_index: int, total_jobs: int) -> int:
-    """
-    Map job index to an approximate overall progress percentage.
-    Download occupies 0-20 %, encode+upload share 20-100 % evenly across jobs.
-    """
+
     per_job = 80 // total_jobs
     return 20 + (job_index - 1) * per_job
 

@@ -3,16 +3,19 @@ import json
 import os
 import random
 
-# FFmpeg drawtext position expressions (relative, safe-padded at ~7% from edges)
-_WM_POSITION_EXPR = {
-    "top_left":  "x=W*0.07:y=H*0.07",
-    "top_mid":   "x=(W-text_w)/2:y=H*0.07",
-    "top_right": "x=W*0.93-text_w:y=H*0.07",
-    "mid_left":  "x=W*0.07:y=(H-text_h)/2",
-    "mid_right": "x=W*0.93-text_w:y=(H-text_h)/2",
-    "bot_left":  "x=W*0.07:y=H*0.93-text_h",
-    "bot_right": "x=W*0.93-text_w:y=H*0.93-text_h",
-}
+def _wm_position_expr(position: str, pad: float) -> str:
+    p  = pad
+    p1 = 1.0 - pad   
+    exprs = {
+        "top_left":  f"x=W*{p}:y=H*{p}",
+        "top_mid":   f"x=(W-text_w)/2:y=H*{p}",
+        "top_right": f"x=W*{p1}-text_w:y=H*{p}",
+        "mid_left":  f"x=W*{p}:y=(H-text_h)/2",
+        "mid_right": f"x=W*{p1}-text_w:y=(H-text_h)/2",
+        "bot_left":  f"x=W*{p}:y=H*{p1}-text_h",
+        "bot_right": f"x=W*{p1}-text_w:y=H*{p1}-text_h",
+    }
+    return exprs.get(position, exprs["bot_right"])
 
 
 class FFmpeg:
@@ -22,8 +25,6 @@ class FFmpeg:
         self.encode_progress = 0
         self.current_stage   = ""
         self.current_process = None
-
-    # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _get_resolution_dimensions(self, resolution_str: str) -> str:
         resolution_map = {
@@ -64,28 +65,32 @@ class FFmpeg:
         text = wm.get("text", "").strip()
         if not text:
             return ""
+        
         text_escaped = (
             text
             .replace("\\", "\\\\")
             .replace("'",  "\\'")
             .replace(":",  "\\:")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
         )
 
-        color    = wm.get("color", "white")
-        if color not in ("white", "black"):
+        color = wm.get("color", "white")
+        if color not in ("white", "black", "red", "green", "blue", "yellow"):
             color = "white"
 
         position = wm.get("position", "bot_right")
-        pos_expr = _WM_POSITION_EXPR.get(position, _WM_POSITION_EXPR["bot_right"])
+        pad_pct  = max(1, min(25, int(wm.get("padding", 7))))
+        pos_expr = _wm_position_expr(position, pad_pct / 100.0)
 
         font_path = wm.get("font_path", "")
+        font_part = ""
         if font_path and os.path.exists(font_path):
-            fp = font_path.replace("\\", "/").replace(":", "\\:")
-            font_part = f"fontfile='{fp}'"
-        else:
-            font_part = ""
+            fp = os.path.abspath(font_path).replace("\\", "/").replace(":", "\\:")
+            font_part = f"fontfile='{fp}':"
 
-        font_size_expr = "h*0.07"
+        font_size = wm.get("font_size", 24)
+        font_size_expr = str(font_size)
 
         timing_mode = wm.get("timing_mode", "range")
         video_duration = 0.0
@@ -95,7 +100,10 @@ class FFmpeg:
         except (TypeError, ValueError):
             video_duration = 0.0
 
-        if timing_mode == "random_duration":
+        if timing_mode == "full":
+            start_sec = 0
+            end_sec   = 0
+        elif timing_mode == "random_duration":
             duration = max(1, int(wm.get("duration", 30)))
             if video_duration > 0 and duration < video_duration:
                 max_start = int(video_duration - duration)
@@ -105,7 +113,7 @@ class FFmpeg:
             end_sec = start_sec + duration
         else:
             start_sec = max(0, int(wm.get("start", 0)))
-            end_sec   = int(wm.get("end", 0))
+            end_sec = int(wm.get("end", 0))
             if end_sec <= start_sec:
                 end_sec = int(video_duration) if video_duration > 0 else 0
 
@@ -114,9 +122,7 @@ class FFmpeg:
         else:
             enable_expr = f":enable='between(t,{start_sec},{end_sec})'"
 
-        parts = [f"text='{text_escaped}'"]
-        if font_part:
-            parts.append(font_part)
+        parts = [f"{font_part}text='{text_escaped}'"]
         parts += [
             f"fontcolor={color}",
             f"fontsize={font_size_expr}",
@@ -126,8 +132,6 @@ class FFmpeg:
             parts.append(enable_expr.lstrip(":"))
 
         return "drawtext=" + ":".join(parts)
-
-    # ── Public API ────────────────────────────────────────────────────────────
 
     async def probe_media(self, input_path: str) -> dict:
         try:
@@ -149,7 +153,7 @@ class FFmpeg:
             return {}
 
     def build_command(self, input_path: str, output_path: str, settings: dict) -> list:
-        input_path  = os.path.abspath(input_path)
+        input_path = os.path.abspath(input_path)
         output_path = os.path.abspath(output_path)
 
         if input_path == output_path:
@@ -157,11 +161,13 @@ class FFmpeg:
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        resolution_str  = settings.get("resolution", "1080p")
-        metadata        = settings.get("metadata", {})
+        resolution_str = settings.get("resolution", "1080p")
+        metadata = settings.get("metadata", {})
         processing_mode = settings.get("processing_mode", "encode")
-        watermark       = settings.get("watermark")
-        media_info      = settings.get("media_info", {})
+        watermark = settings.get("watermark")
+        media_info = settings.get("media_info", {})
+        audio_codec = settings.get("audio_codec", "aac")
+        audio_bitrate = settings.get("audio_bitrate", "128k")
 
         if processing_mode == "metadata_only" or resolution_str == "HDRip":
             cmd = [
@@ -176,13 +182,62 @@ class FFmpeg:
             cmd.extend(["-y", output_path])
             return cmd
 
-        # ── Full encode ───────────────────────────────────────────────────────
+        # ── Rename mode: metadata + watermark burn-in, no resolution scale ───
+        if processing_mode == "rename":
+            wm_filter = self._build_watermark_filter(watermark, media_info) if watermark else ""
+            if wm_filter:
+                # Watermark must be burned in — video stream re-encode is unavoidable.
+                # Detect the source codec so we re-encode to the same format.
+                # Audio, subtitles and all other streams are stream-copied untouched.
+                source_codec = "libx264"
+                try:
+                    for stream in media_info.get("streams", []):
+                        if stream.get("codec_type") == "video":
+                            codec_name = stream.get("codec_name", "")
+                            if "265" in codec_name or "hevc" in codec_name:
+                                source_codec = "libx265"
+                            else:
+                                source_codec = "libx264"
+                            break
+                except Exception:
+                    source_codec = "libx264"
+
+                sub_codec = self._subtitle_codec(output_path)
+                cmd = [
+                    self.ffmpeg_path,
+                    "-i", input_path,
+                    "-map", "0:v",
+                    "-map", "0:a",
+                    "-map", "0:s?",
+                    "-c:a", "copy",
+                    "-c:s", sub_codec,
+                    "-c:v", source_codec,
+                    "-crf", "18",       # high quality — preserve as much as possible
+                    "-preset", "medium",
+                    "-vf", wm_filter,
+                    "-pix_fmt", "yuv420p",
+                    "-map_metadata", "0",
+                ]
+            else:
+                # No watermark — pure stream-copy, just write new metadata tags.
+                cmd = [
+                    self.ffmpeg_path,
+                    "-i", input_path,
+                    "-map", "0",
+                    "-c", "copy",
+                    "-map_metadata", "0",
+                ]
+            cmd.extend(self._container_flags(output_path))
+            self._append_metadata(cmd, metadata)
+            cmd.extend(["-y", output_path])
+            return cmd
+
         dimensions = self._get_resolution_dimensions(resolution_str)
         width, height = dimensions.split("x")
 
-        codec = settings.get("codec", "libx264")
-        if codec not in ("libx264", "libx265", "h264", "h265"):
-            codec = "libx264"
+        video_codec = settings.get("codec", "libx264")
+        if video_codec not in ("libx264", "libx265", "h264", "h265"):
+            video_codec = "libx264"
 
         sub_codec = self._subtitle_codec(output_path)
 
@@ -197,18 +252,25 @@ class FFmpeg:
         cmd = [
             self.ffmpeg_path,
             "-i", input_path,
-            "-map", "0",
-            "-c", "copy",
-            "-c:v", codec,
+            "-map", "0:v",
+            "-map", "0:a",
+            "-map", "0:s?",
+        ]
+
+        if audio_codec == "copy":
+            cmd.extend(["-c:a", "copy"])
+        else:
+            cmd.extend(["-c:a", audio_codec, "-b:a", audio_bitrate])
+
+        cmd.extend([
+            "-c:v", video_codec,
             "-preset", settings.get("preset", "medium"),
             "-crf", str(settings.get("crf", 23)),
             "-vf", vf,
             "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", settings.get("audio_bitrate", "128k"),
             "-c:s", sub_codec,
             "-map_metadata", "0",
-        ]
+        ])
 
         cmd.extend(self._container_flags(output_path))
         self._append_metadata(cmd, metadata)

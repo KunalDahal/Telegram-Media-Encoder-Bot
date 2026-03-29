@@ -2,6 +2,9 @@ import os
 import shutil
 import time
 
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TMP_DIR  = os.path.join(_SRC_DIR, "bin", "tmp")
+
 class Uploader:
     def __init__(self, client, task_data: dict, task_queue=None):
         self.client = client
@@ -27,7 +30,7 @@ class Uploader:
         send_type = self.task_data.get("send_type", "media")
         thumbnail_path = self.task_data.get("thumbnail_path", "")
 
-        task_folder = os.path.join("./src/bin/tmp", task_id)
+        task_folder = os.path.join(_TMP_DIR, task_id)
         explicit_file_path = self.task_data.get("upload_file_path")
 
         if explicit_file_path and os.path.exists(explicit_file_path):

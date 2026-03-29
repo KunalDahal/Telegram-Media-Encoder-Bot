@@ -99,13 +99,11 @@ def build_profile_text(resolution, profile, subtitle=""):
     audio  = profile.get("audio_bitrate", "128k")
     extra  = f"\n<i>{subtitle}</i>" if subtitle else ""
     return (
-        f"<b>🎬 {resolution} Profile</b>{extra}\n\n"
-        "<blockquote>"
+        f"<b>{resolution} Profile</b>{extra}\n\n"
         f"CRF    : <code>{crf}</code>  <i>(lower = better quality)</i>\n"
         f"Preset : <code>{preset}</code>\n"
         f"Codec  : <code>{codec}</code>\n"
-        f"Audio  : <code>{audio}</code>"
-        "</blockquote>\n"
+        f"Audio  : <code>{audio}</code>\n\n"
         "<i>Tap any button below to change a setting.</i>"
     )
 
@@ -115,27 +113,31 @@ def build_watermark_text(wm: dict, subtitle: str = "") -> str:
     text        = wm.get("text", "") or "—"
     color       = wm.get("color", "white").capitalize()
     font_name   = wm.get("font_name", "default")
+    font_size   = wm.get("font_size", 24)
+    padding     = wm.get("padding", 7)
     timing_mode = wm.get("timing_mode", "range")
     position    = WM_POSITION_LABELS.get(wm.get("position", "bot_right"), "Bot Right")
     extra       = f"\n<i>{subtitle}</i>" if subtitle else ""
 
-    if timing_mode == "range":
+    if timing_mode == "full":
+        timing_str = "Full Duration"
+    elif timing_mode == "range":
         timing_str = f"Range  <code>{wm.get('start', 0)}s → {wm.get('end', 0)}s</code>"
     else:
         timing_str = f"Random  <code>{wm.get('duration', 30)}s</code> duration"
 
-    status = "✅ Enabled" if enabled else "⏸ Disabled"
+    status = "Enabled" if enabled else "Disabled"
 
     return (
-        f"<b>💧 Watermark</b>{extra}\n\n"
-        "<blockquote>"
-        f"Status   : {status}\n"
-        f"Text     : <code>{text}</code>\n"
-        f"Color    : <code>{color}</code>\n"
-        f"Font     : <code>{font_name}</code>\n"
-        f"Timing   : {timing_str}\n"
-        f"Position : {position}"
-        "</blockquote>\n"
+        f"<b>Watermark</b>{extra}\n\n"
+        f"Status    : {status}\n"
+        f"Text      : <code>{text}</code>\n"
+        f"Color     : <code>{color}</code>\n"
+        f"Font      : <code>{font_name}</code>\n"
+        f"Font Size : <code>{font_size}px</code>\n"
+        f"Padding   : <code>{padding}%</code>\n"
+        f"Timing    : {timing_str}\n"
+        f"Position  : {position}\n\n"
         "<i>HDRip jobs skip the watermark (stream-copy, no re-encode).</i>"
     )
 
@@ -144,14 +146,14 @@ def build_watermark_text(wm: dict, subtitle: str = "") -> str:
 
 def build_main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📐 Resolutions",      callback_data="set_resolution")],
-        [InlineKeyboardButton("🎛 Quality Profiles", callback_data="set_profiles")],
-        [InlineKeyboardButton("📤 Send Type",        callback_data="set_send_type")],
-        [InlineKeyboardButton("🏷 Metadata",         callback_data="set_metadata")],
-        [InlineKeyboardButton("🖼 Thumbnail",        callback_data="set_thumbnail")],
-        [InlineKeyboardButton("💧 Watermark",        callback_data="set_watermark")],
-        [InlineKeyboardButton("🔄 Reset All",        callback_data="reset_settings"),
-         InlineKeyboardButton("✖️ Close",            callback_data="close_menu")],
+        [InlineKeyboardButton("Resolutions",      callback_data="set_resolution")],
+        [InlineKeyboardButton("Quality Profiles", callback_data="set_profiles")],
+        [InlineKeyboardButton("Send Type",        callback_data="set_send_type")],
+        [InlineKeyboardButton("Metadata",         callback_data="set_metadata")],
+        [InlineKeyboardButton("Thumbnail",        callback_data="set_thumbnail")],
+        [InlineKeyboardButton("Watermark",        callback_data="set_watermark")],
+        [InlineKeyboardButton("Reset All",        callback_data="reset_settings"),
+         InlineKeyboardButton("Close",            callback_data="close_menu")],
     ])
 
 
@@ -166,7 +168,7 @@ def build_resolution_keyboard(settings):
          InlineKeyboardButton(btn("1080p"), callback_data="res_toggle_1080p")],
         [InlineKeyboardButton(btn("720p"),  callback_data="res_toggle_720p"),
          InlineKeyboardButton(btn("480p"),  callback_data="res_toggle_480p")],
-        [InlineKeyboardButton("⬅ Back", callback_data="back_to_menu")],
+        [InlineKeyboardButton("Back", callback_data="back_to_menu")],
     ])
 
 
@@ -175,8 +177,8 @@ def build_profiles_keyboard():
         [InlineKeyboardButton("1080p", callback_data="profile_res_1080p")],
         [InlineKeyboardButton("720p",  callback_data="profile_res_720p")],
         [InlineKeyboardButton("480p",  callback_data="profile_res_480p")],
-        [InlineKeyboardButton("🔄 Reset All Profiles", callback_data="profile_reset_all")],
-        [InlineKeyboardButton("⬅ Back", callback_data="back_to_menu")],
+        [InlineKeyboardButton("Back", callback_data="back_to_menu"),
+         InlineKeyboardButton("Reset", callback_data="profile_reset_all")],
     ])
 
 
@@ -191,7 +193,7 @@ def build_preset_keyboard(resolution, current_preset):
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton("⬅ Back", callback_data=f"profile_res_{resolution}")])
+    buttons.append([InlineKeyboardButton("Back", callback_data=f"profile_res_{resolution}")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -202,7 +204,7 @@ def build_codec_keyboard(resolution, current_codec):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(lbl("libx264", "H.264 (libx264)"), callback_data=f"profile_set_{resolution}_codec_libx264"),
          InlineKeyboardButton(lbl("libx265", "H.265 (libx265)"), callback_data=f"profile_set_{resolution}_codec_libx265")],
-        [InlineKeyboardButton("⬅ Back", callback_data=f"profile_res_{resolution}")]
+        [InlineKeyboardButton("Back", callback_data=f"profile_res_{resolution}")]
     ])
 
 
@@ -217,7 +219,7 @@ def build_audio_keyboard(resolution, current_audio):
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton("⬅ Back", callback_data=f"profile_res_{resolution}")])
+    buttons.append([InlineKeyboardButton("Back", callback_data=f"profile_res_{resolution}")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -227,23 +229,25 @@ def build_profile_edit_keyboard(resolution, profile):
         [InlineKeyboardButton(f"Preset: {profile.get('preset', 'medium')}",   callback_data=f"profile_edit_{resolution}_preset")],
         [InlineKeyboardButton(f"Codec: {profile.get('codec', 'libx264')}",    callback_data=f"profile_edit_{resolution}_codec")],
         [InlineKeyboardButton(f"Audio: {profile.get('audio_bitrate','128k')}", callback_data=f"profile_edit_{resolution}_audio")],
-        [InlineKeyboardButton(f"🔄 Reset {resolution} to Default",            callback_data=f"profile_reset_{resolution}")],
-        [InlineKeyboardButton("⬅ Back to Profiles",                           callback_data="set_profiles")],
+        [InlineKeyboardButton("Back",                           callback_data="set_profiles"),
+         InlineKeyboardButton(f"Reset",            callback_data=f"profile_reset_{resolution}")],
     ])
 
 
 def build_watermark_keyboard(wm: dict) -> InlineKeyboardMarkup:
     enabled   = wm.get("enabled", False)
-    toggle_lbl = "✅ Enabled — tap to disable" if enabled else "⏸ Disabled — tap to enable"
+    toggle_lbl = "Enabled — tap to disable" if enabled else "Disabled — tap to enable"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(toggle_lbl,          callback_data="wm_toggle")],
-        [InlineKeyboardButton("📝 Text",           callback_data="wm_set_text"),
-         InlineKeyboardButton("🎨 Color",          callback_data="wm_set_color")],
-        [InlineKeyboardButton("🔤 Font",           callback_data="wm_set_font"),
-         InlineKeyboardButton("⏱ Timing",         callback_data="wm_set_timing")],
-        [InlineKeyboardButton("📍 Position",       callback_data="wm_set_position")],
-        [InlineKeyboardButton("🔄 Reset Watermark", callback_data="wm_reset")],
-        [InlineKeyboardButton("⬅ Back",            callback_data="back_to_menu")],
+        [InlineKeyboardButton("Text",           callback_data="wm_set_text"),
+         InlineKeyboardButton("Color",          callback_data="wm_set_color")],
+        [InlineKeyboardButton("Font",           callback_data="wm_set_font"),
+         InlineKeyboardButton("Timing",         callback_data="wm_set_timing")],
+        [InlineKeyboardButton("Font Size",      callback_data="wm_set_font_size"),
+         InlineKeyboardButton("Padding",        callback_data="wm_set_padding")],
+        [InlineKeyboardButton("Position",       callback_data="wm_set_position")],
+        [InlineKeyboardButton("Back",            callback_data="back_to_menu"),
+         InlineKeyboardButton("Reset", callback_data="wm_reset")],
     ])
 
 
@@ -254,18 +258,19 @@ def build_wm_color_keyboard(current: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(lbl("white"), callback_data="wm_color_white"),
          InlineKeyboardButton(lbl("black"), callback_data="wm_color_black")],
-        [InlineKeyboardButton("⬅ Back", callback_data="set_watermark")],
+        [InlineKeyboardButton("Back", callback_data="set_watermark")],
     ])
 
 
 def build_wm_timing_keyboard(current_mode: str) -> InlineKeyboardMarkup:
     def lbl(mode, label):
-        return f"☑ {label}" if mode == current_mode else label
+        return f"[x] {label}" if mode == current_mode else label
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(lbl("range",           "⏱ Start → End"),      callback_data="wm_timing_range")],
-        [InlineKeyboardButton(lbl("random_duration", "🎲 Random Duration"),  callback_data="wm_timing_random")],
-        [InlineKeyboardButton("⬅ Back", callback_data="set_watermark")],
+        [InlineKeyboardButton(lbl("full",            "Full Duration"),     callback_data="wm_timing_full")],
+        [InlineKeyboardButton(lbl("range",           "Start → End"),      callback_data="wm_timing_range")],
+        [InlineKeyboardButton(lbl("random_duration", "Random Duration"),  callback_data="wm_timing_random")],
+        [InlineKeyboardButton("Back", callback_data="set_watermark")],
     ])
 
 
@@ -281,7 +286,13 @@ def build_wm_position_keyboard(current: str) -> InlineKeyboardMarkup:
         [btn("top_left"),  btn("top_mid"),   btn("top_right")],
         [btn("mid_left"),                    btn("mid_right")],
         [btn("bot_left"),                    btn("bot_right")],
-        [InlineKeyboardButton("⬅ Back", callback_data="set_watermark")],
+        [InlineKeyboardButton("Back", callback_data="set_watermark")],
+    ])
+
+
+def build_cancel_keyboard(label: str = "Cancel") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data="cancel_input")]
     ])
 
 
@@ -329,7 +340,7 @@ def setup_settings_handlers(app: Client, user_settings):
     # ── Main callback dispatcher ──────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(
-        r"^(set_|res_|profile_|sendtype_|meta_|reset_|back_to|close_|wm_)"
+        r"^(set_|res_|profile_|sendtype_|meta_|reset_|back_to|close_|wm_|cancel_input)"
     ))
     async def handle_settings_callbacks(client: Client, callback_query: CallbackQuery):
         user    = callback_query.from_user
@@ -362,11 +373,13 @@ def setup_settings_handlers(app: Client, user_settings):
                         "Lower value → better quality, larger file\n"
                         "Higher value → smaller file, lower quality\n"
                         "<i>Please send a number...</i>",
+                        reply_markup=build_cancel_keyboard(),
                         parse_mode=ParseMode.HTML
                     )
                     user_settings(user_id).temp_state[user_id] = {
                         "state": f"waiting_profile_{resolution}_crf",
-                        "prompt_message_id": sent_message.id
+                        "prompt_message_id": sent_message.id,
+                        "back_to": f"profile_{resolution}",
                     }
 
                 elif setting == "preset":
@@ -528,31 +541,37 @@ def setup_settings_handlers(app: Client, user_settings):
         elif data == "meta_title":
             sent_message = await message.edit_text(
                 "<b>Set Title</b>\n\nSend the title to embed in your videos.",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_meta_title",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "metadata",
             }
 
         elif data == "meta_author":
             sent_message = await message.edit_text(
                 "<b>Set Author</b>\n\nSend the author name to embed.",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_meta_author",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "metadata",
             }
 
         elif data == "meta_encoder":
             sent_message = await message.edit_text(
                 "<b>Set Encoder</b>\n\nSend the encoder name to embed.",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_meta_encoder",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "metadata",
             }
 
         elif data == "meta_clear":
@@ -565,12 +584,14 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "set_thumbnail":
             sent_message = await message.edit_text(
-                "<b>🖼 Set Thumbnail</b>\n\nSend an image to use as the video thumbnail.",
+                "<b>Set Thumbnail</b>\n\nSend an image to use as the video thumbnail.",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_thumbnail",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "main",
             }
 
         # ── Watermark ─────────────────────────────────────────────────────────
@@ -601,15 +622,16 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "wm_set_text":
             sent_message = await message.edit_text(
-                "<b>💧 Watermark Text</b>\n\n"
+                "<b>Watermark Text</b>\n\n"
                 "Send the text to display on the video.\n"
-                "<i>Example: <code>@MyChannel</code></i>\n\n"
-                "Use /skip to cancel.",
+                "<i>Example: <code>My Channel</code></i>\n\n",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_wm_text",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "watermark",
             }
             await callback_query.answer()
             return
@@ -617,7 +639,7 @@ def setup_settings_handlers(app: Client, user_settings):
         elif data == "wm_set_color":
             wm = user_settings(user_id).get_watermark()
             await message.edit_text(
-                "<b>🎨 Watermark Color</b>\n\nChoose the text color.",
+                "<b>Watermark Color</b>\n\nChoose the text color.",
                 reply_markup=build_wm_color_keyboard(wm.get("color", "white")),
                 parse_mode=ParseMode.HTML
             )
@@ -639,15 +661,16 @@ def setup_settings_handlers(app: Client, user_settings):
 
         elif data == "wm_set_font":
             sent_message = await message.edit_text(
-                "<b>🔤 Watermark Font</b>\n\n"
+                "<b>Watermark Font</b>\n\n"
                 "Send a <code>.ttf</code> or <code>.otf</code> font file to use a custom font.\n\n"
-                "The font family name will be extracted and stored automatically.\n\n"
-                "Use /skip to keep the current font.",
+                "The font family name will be extracted and stored automatically.\n\n",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_wm_font",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "watermark",
             }
             await callback_query.answer()
             return
@@ -655,28 +678,40 @@ def setup_settings_handlers(app: Client, user_settings):
         elif data == "wm_set_timing":
             wm = user_settings(user_id).get_watermark()
             await message.edit_text(
-                "<b>⏱ Watermark Timing</b>\n\n"
+                "<b>Watermark Timing</b>\n\n"
                 "<blockquote>"
+                "<b>Full Duration</b>  Visible for the entire video.\n\n"
                 "<b>Start → End</b>  Visible between two exact timestamps.\n\n"
-                "<b>Random Duration</b>  Appears for N seconds at a random point in the video."
-                "</blockquote>",
+                "<b>Random Duration</b>  Appears for N seconds at a random point in the video.</blockquote>",
                 reply_markup=build_wm_timing_keyboard(wm.get("timing_mode", "range")),
                 parse_mode=ParseMode.HTML
             )
             await callback_query.answer()
             return
 
+        elif data == "wm_timing_full":
+            user_settings(user_id).update_watermark(timing_mode="full")
+            await callback_query.answer("Timing set to Full Duration")
+            wm = user_settings(user_id).get_watermark()
+            await message.edit_text(
+                build_watermark_text(wm, "Timing set to Full Duration"),
+                reply_markup=build_watermark_keyboard(wm),
+                parse_mode=ParseMode.HTML
+            )
+            return
+
         elif data == "wm_timing_range":
             user_settings(user_id).update_watermark(timing_mode="range")
             sent_message = await message.edit_text(
-                "<b>⏱ Set Start Time</b>\n\n"
-                "Send the <b>start time in seconds</b> (e.g. <code>22</code>).\n\n"
-                "Use /skip to cancel.",
+                "<b>Set Start Time</b>\n\n"
+                "Send the <b>start time in seconds</b> (e.g. <code>22</code>).\n\n",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_wm_range_start",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "watermark",
             }
             await callback_query.answer()
             return
@@ -684,16 +719,17 @@ def setup_settings_handlers(app: Client, user_settings):
         elif data == "wm_timing_random":
             user_settings(user_id).update_watermark(timing_mode="random_duration")
             sent_message = await message.edit_text(
-                "<b>🎲 Random Duration</b>\n\n"
+                "<b>Random Duration</b>\n\n"
                 "Send the <b>duration in seconds</b> the watermark should be visible.\n"
                 "<i>Example: <code>30</code></i>\n\n"
-                "A random start time will be chosen automatically.\n\n"
-                "Use /skip to cancel.",
+                "A random start time will be chosen automatically.\n\n",
+                reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_wm_duration",
-                "prompt_message_id": sent_message.id
+                "prompt_message_id": sent_message.id,
+                "back_to": "watermark",
             }
             await callback_query.answer()
             return
@@ -701,12 +737,48 @@ def setup_settings_handlers(app: Client, user_settings):
         elif data == "wm_set_position":
             wm = user_settings(user_id).get_watermark()
             await message.edit_text(
-                "<b>📍 Watermark Position</b>\n\n"
+                "<b>Watermark Position</b>\n\n"
                 "Choose where the watermark appears on the frame.\n"
-                "<i>All positions use ~4% safe padding from the edge.</i>",
+                "<i>All positions use your configured padding % from the edge.</i>",
                 reply_markup=build_wm_position_keyboard(wm.get("position", "bot_right")),
                 parse_mode=ParseMode.HTML
             )
+            await callback_query.answer()
+            return
+
+        elif data == "wm_set_font_size":
+            wm = user_settings(user_id).get_watermark()
+            sent_message = await message.edit_text(
+                "<b>Watermark Font Size</b>\n\n"
+                f"Current: <code>{wm.get('font_size', 24)}px</code>\n\n"
+                "Send a font size between <code>8</code> and <code>200</code>.\n\n",
+                reply_markup=build_cancel_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+            user_settings(user_id).temp_state[user_id] = {
+                "state": "waiting_wm_font_size",
+                "prompt_message_id": sent_message.id,
+                "back_to": "watermark",
+            }
+            await callback_query.answer()
+            return
+
+        elif data == "wm_set_padding":
+            wm = user_settings(user_id).get_watermark()
+            sent_message = await message.edit_text(
+                "<b>Watermark Padding</b>\n\n"
+                f"Current: <code>{wm.get('padding', 7)}%</code>\n\n"
+                "Padding controls how far the watermark sits from the frame edge.\n"
+                "Send a whole number between <code>1</code> and <code>25</code>.\n\n"
+                "<i>Example: <code>7</code> = 7% of frame width/height</i>\n\n",
+                reply_markup=build_cancel_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+            user_settings(user_id).temp_state[user_id] = {
+                "state": "waiting_wm_padding",
+                "prompt_message_id": sent_message.id,
+                "back_to": "watermark",
+            }
             await callback_query.answer()
             return
 
@@ -733,6 +805,49 @@ def setup_settings_handlers(app: Client, user_settings):
                 reply_markup=build_watermark_keyboard(wm),
                 parse_mode=ParseMode.HTML
             )
+            return
+
+        # ── Cancel pending input ──────────────────────────────────────────────
+
+        elif data == "cancel_input":
+            us = user_settings(user_id)
+            state_data = us.temp_state.get(user_id, {})
+            back_to = state_data.get("back_to", "main") if isinstance(state_data, dict) else "main"
+            us.temp_state.pop(user_id, None)
+            await callback_query.answer("Cancelled")
+
+            if back_to == "watermark":
+                wm = us.get_watermark()
+                await message.edit_text(
+                    build_watermark_text(wm),
+                    reply_markup=build_watermark_keyboard(wm),
+                    parse_mode=ParseMode.HTML
+                )
+            elif back_to == "metadata":
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Set Title",   callback_data="meta_title"),
+                     InlineKeyboardButton("Set Author",  callback_data="meta_author")],
+                    [InlineKeyboardButton("Set Encoder", callback_data="meta_encoder"),
+                     InlineKeyboardButton("Clear All",   callback_data="meta_clear")],
+                    [InlineKeyboardButton("Back", callback_data="back_to_menu")]
+                ])
+                await message.edit_text(
+                    "<b>Metadata</b>\n\n"
+                    "<blockquote>Title, author, and encoder tags are embedded\n"
+                    "directly into the output file.</blockquote>",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            elif back_to.startswith("profile_"):
+                resolution = back_to.replace("profile_", "")
+                profile = us.get_profile(resolution)
+                await message.edit_text(
+                    build_profile_text(resolution, profile),
+                    reply_markup=build_profile_edit_keyboard(resolution, profile),
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update_main_menu(client, message, user_id)
             return
 
         # ── Reset / back / close ──────────────────────────────────────────────
@@ -912,15 +1027,16 @@ def setup_settings_handlers(app: Client, user_settings):
                     pass
                 sent = await client.send_message(
                     user_id,
-                    f"<b>⏱ Set End Time</b>\n\n"
+                    f"<b>Set End Time</b>\n\n"
                     f"Start is set to <code>{start}s</code>.\n"
-                    "Now send the <b>end time in seconds</b>.\n\n"
-                    "Use /skip to cancel.",
+                    "Now send the <b>end time in seconds</b>.\n\n",
+                    reply_markup=build_cancel_keyboard(),
                     parse_mode=ParseMode.HTML
                 )
                 us.temp_state[user_id] = {
                     "state": "waiting_wm_range_end",
-                    "prompt_message_id": sent.id
+                    "prompt_message_id": sent.id,
+                    "back_to": "watermark",
                 }
             except ValueError:
                 await message.reply_text("Please send a valid non-negative number.", parse_mode=ParseMode.HTML)
@@ -974,27 +1090,55 @@ def setup_settings_handlers(app: Client, user_settings):
             except ValueError:
                 await message.reply_text("Please send a positive number of seconds.", parse_mode=ParseMode.HTML)
 
-    # ── /skip command ─────────────────────────────────────────────────────────
-
-    @app.on_message(filters.command("skip") & filters.private)
-    async def skip_command(client: Client, message: Message):
-        user_id = message.from_user.id
-        us      = user_settings(user_id)
-
-        if user_id in us.temp_state:
-            state_data        = us.temp_state[user_id]
-            prompt_message_id = state_data.get("prompt_message_id") if isinstance(state_data, dict) else None
-            del us.temp_state[user_id]
+        # ── Watermark font size ───────────────────────────────────────────────
+        elif state == "waiting_wm_font_size":
             try:
-                ids_to_delete = [message.id]
-                if prompt_message_id:
-                    ids_to_delete.append(prompt_message_id)
-                await client.delete_messages(chat_id=user_id, message_ids=ids_to_delete)
-            except Exception:
-                pass
-            await us_command(client, message)
-        else:
-            await message.reply_text("Nothing to skip.")
+                size = int(message.text)
+                if not (8 <= size <= 200):
+                    raise ValueError
+                us.update_watermark(font_size=size)
+                del us.temp_state[user_id]
+                try:
+                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
+                except Exception:
+                    pass
+                wm = us.get_watermark()
+                await client.send_message(
+                    user_id,
+                    build_watermark_text(wm, f"Font size set to {size}px ✓"),
+                    reply_markup=build_watermark_keyboard(wm),
+                    parse_mode=ParseMode.HTML
+                )
+            except ValueError:
+                await message.reply_text(
+                    "Please send a valid integer between <code>8</code> and <code>200</code>.",
+                    parse_mode=ParseMode.HTML
+                )
+
+        # ── Watermark padding ─────────────────────────────────────────────────
+        elif state == "waiting_wm_padding":
+            try:
+                padding = int(message.text)
+                if not (1 <= padding <= 25):
+                    raise ValueError
+                us.update_watermark(padding=padding)
+                del us.temp_state[user_id]
+                try:
+                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
+                except Exception:
+                    pass
+                wm = us.get_watermark()
+                await client.send_message(
+                    user_id,
+                    build_watermark_text(wm, f"Padding set to {padding}% ✓"),
+                    reply_markup=build_watermark_keyboard(wm),
+                    parse_mode=ParseMode.HTML
+                )
+            except ValueError:
+                await message.reply_text(
+                    "Please send a whole number between <code>1</code> and <code>25</code>.",
+                    parse_mode=ParseMode.HTML
+                )
 
     # ── Thumbnail photo handler ───────────────────────────────────────────────
 
@@ -1019,7 +1163,7 @@ def setup_settings_handlers(app: Client, user_settings):
             downloaded_path = await client.download_media(message, file_name=thumb_path)
 
             if not downloaded_path or not os.path.exists(downloaded_path):
-                await message.reply_text("❌ <b>Failed to save thumbnail.</b> Please try again.", parse_mode=ParseMode.HTML)
+                await message.reply_text("<b>Failed to save thumbnail.</b> Please try again.", parse_mode=ParseMode.HTML)
                 return
 
             us.set_thumbnail(os.path.abspath(downloaded_path))
@@ -1033,7 +1177,7 @@ def setup_settings_handlers(app: Client, user_settings):
             await us_command(client, message)
 
         except Exception as e:
-            await message.reply_text(f"❌ <b>Error saving thumbnail:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
+            await message.reply_text(f"<b>Error saving thumbnail:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
 
     # ── Font file document handler ────────────────────────────────────────────
 
@@ -1059,7 +1203,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         if ext not in (".ttf", ".otf"):
             await message.reply_text(
-                "❌ Only <code>.ttf</code> and <code>.otf</code> font files are accepted.",
+                "Only <code>.ttf</code> and <code>.otf</code> font files are accepted.",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -1071,7 +1215,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
             downloaded = await client.download_media(message, file_name=tmp_path)
             if not downloaded or not os.path.exists(downloaded):
-                await message.reply_text("❌ Failed to download font file. Please try again.", parse_mode=ParseMode.HTML)
+                await message.reply_text("Failed to download font file. Please try again.", parse_mode=ParseMode.HTML)
                 return
 
             font_name = us.set_watermark_font(os.path.abspath(downloaded))
@@ -1098,4 +1242,4 @@ def setup_settings_handlers(app: Client, user_settings):
             )
 
         except Exception as e:
-            await message.reply_text(f"❌ <b>Error saving font:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
+            await message.reply_text(f"<b>Error saving font:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)

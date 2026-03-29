@@ -11,5 +11,5 @@ __all__ = [
     "setup_encode_handlers",
     "setup_settings_handlers",
     "setup_status_handlers",
-    "setup_cancel_handlers",
+    "setup_cancel_handlers"
 ]

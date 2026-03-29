@@ -2,9 +2,11 @@ import os
 import asyncio
 import time
 
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 class Downloader:
-    def __init__(self, temp_base: str, task_queue=None, task_id=None):
-        self.temp_base = temp_base
+    def __init__(self, temp_base: str = None, task_queue=None, task_id=None):
+        self.temp_base = temp_base if temp_base else os.path.join(_SRC_DIR, "bin", "tmp")
         self.task_queue = task_queue
         self.task_id = task_id
         self._last_time = None

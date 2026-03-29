@@ -6,17 +6,13 @@ from src import Config
 config = Config()
 
 START_TEXT = """
-<b>Welcome to the Encoding Bot!</b>
+<b>EncodeBot</b>
 
-Queue video files for encoding with full per-resolution quality control.
+<i>Advanced video encoder and renamer</i>
 
-<blockquote><b>Quick start:</b>
-1. Use /es to configure your resolutions and quality profiles
-2. Reply to any video file and type /encode
-3. Use /status to track progress
-4. Use /cancel &lt;task_id&gt; to cancel a task</blockquote>
+EncodeBot allows you to encode a single file into multiple resolutions at once. You can choose different output resolutions in a single command and create all versions of the same file together.
 
-Type /help for the full command reference.
+Use /help to view the full command list.
 """
 
 START_IMAGE = "./src/bin/start.jpg"
