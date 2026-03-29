@@ -1,68 +1,168 @@
-from pyrogram import filters, enums
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import enums, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-async def help_command(client, message: Message):
-    
-    help_text = """
-<blockquote><b>Bot Commands Guide</b></blockquote>
-Here’s a complete overview of the bot and its features.
 
-<blockquote><b>Basic Commands:</b></blockquote>
-• <b>/start – Start the bot.</b>
-• <b>/help – Show the help message.</b>
+HELP_TEXT = """
+<b>EncodeBot Help</b>
 
-<blockquote><b>Other Commands:</b></blockquote>
+<i>Command Reference and Usage Guide</i>
 
-• <b>/us – Configure your custom encoding settings</b>
-- Set video resolution, CRF, preset, codec
-- Set audio bitrate
-- Set metadata such as title, author, encoder
-- Choose file type to send: Telegram media, Telegram video, or Telegram document
-- Set a custom thumbnail
-<i>With /us, you can fully customize how your files are encoded and sent.</i>
+════════════════════════════
+<b>◆ /es</b>
+Configure all encoding settings before using /encode.
+The settings menu includes the following options:
 
-• <b>/encode filename.ext – Encode a replied video</b>
-Reply to a video and type <b>/encode</b> to use the original filename.
-Or specify a filename with extension like <b>/encode myvideo.mp4</b>.
-<i>The bot will encode your file according to your /us settings and send it back.</i>
+◇ Resolution Selection  
+Select one or more output resolutions. When you run /encode, the file will be encoded into all selected resolutions.
 
-• <b>/status – Check the progress of encoding tasks</b>
-Shows download, encoding, and upload progress for your files.
+Example:
+<code>1080p, 720p, 480p</code>
 
-<blockquote><b>Upcoming Features:</b></blockquote>
-• Parallel encoding – handle multiple files at once
-• Batch Rename – rename files in batch
-• Watermark – add watermark to full video or for a short duration
+◇ Quality Profile  
+For every selected resolution, you can set a separate:
 
-<blockquote><b>Notes:</b></blockquote>
-• All commands work in private chat only
-• Only authorized admins can use this bot
-• Large files may take time to process
+• CRF  
+• Preset  
+• Video Codec  
+• Audio Codec  
 
-<blockquote><b>Need help?</b></blockquote>
-Contact the developer if you face any issues.
+This allows different quality profiles for different resolutions.
+
+Example:
+
+<code>1080p → CRF 18 | preset slow | h264 | aac</code>
+<code>720p  → CRF 20 | preset medium | h264 | aac</code>
+<code>480p  → CRF 24 | preset fast | h265 | aac</code>
+
+◇ Send Type  
+Choose how encoded files are sent:
+
+• Media  
+• Document
+
+◇ Metadata  
+Set custom metadata for the output file.
+
+Examples:
+<code>Title</code>
+<code>Author</code>
+<code>Source</code>
+
+◇ Thumbnail  
+Set a custom thumbnail that will be used for encoded or renamed files.
+
+◇ Watermark  
+Customize watermark settings completely.
+
+Available options include:
+
+• Text  
+• Font  
+• Font Size  
+• Text Color  
+• Padding  
+• Position  
+• Start Time  
+• End Time
+
+You may adjust the watermark design according to your own preference.
+
+════════════════════════════
+
+<b>◆ /encode &lt;filename&gt;</b>
+
+Reply to a video file with /encode.
+
+The filename must include:
+
+◇ A valid file extension
+◇ A quality placeholder
+
+The quality placeholder will automatically be replaced with each selected resolution.
+
+Example:
+
+<code>/encode Movie [quality].mkv</code>
+
+If your selected resolutions are:
+
+<code>1080p, 720p, 480p</code>
+
+The generated files will be:
+
+<code>Movie 1080p.mkv</code>
+<code>Movie 720p.mkv</code>
+<code>Movie 480p.mkv</code>
+
+════════════════════════════
+
+<b>◆ /rename &lt;filename&gt;</b>
+
+Reply to a file with /rename followed by the new filename.
+
+Example:
+
+<code>/rename New Movie.mkv</code>
+
+While renaming, the following settings may also be applied:
+
+◇ Thumbnail  
+◇ Metadata  
+◇ Watermark
+
+════════════════════════════
+
+<b>◆ /status</b>
+
+Shows all currently running tasks.
+
+The status page includes:
+
+• Current task state  
+• Active resolution  
+• Progress  
+• Speed  
+• ETA  
+• Queue position
+
+════════════════════════════
+
+<b>◆ /start</b>
+
+Displays the introduction and basic information about EncodeBot.
+
+════════════════════════════
+
+<b>◆ /help</b>
+
+Displays this help message.
+
+════════════════════════════
+
+<b>◇ Notes</b>
+
+• Configure your settings first using /es  
+• The quality placeholder is required when using /encode  
+• A valid file extension must always be included  
+• Multiple resolutions can be generated from a single command  
+• Thumbnail, metadata and watermark settings apply to both encoding and renaming
 """
-    
-    keyboard = InlineKeyboardMarkup([
-    [InlineKeyboardButton("Developer", url="https://t.me/aniindexadminbot")]
-])
-    
-    try:
-        await message.reply_text(
-                text=help_text,
-                reply_markup=keyboard,
-                parse_mode=enums.ParseMode.HTML
-            )
-    except Exception as e:
-        print(f"Error sending help: {e}")
-        await message.reply_text(
-            text="/start to begin\nUse /encode to encode videos\nUse /status to check queue",
-            reply_markup=keyboard
-        )
 
 
 def setup_help_handlers(app):
     @app.on_message(filters.command("help") & filters.private)
     async def help_handler(client, message: Message):
-        await help_command(client, message)
-    
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Developer", url="https://t.me/renzobot")]
+        ])
+        try:
+            await message.reply_text(
+                text=HELP_TEXT,
+                reply_markup=keyboard,
+                parse_mode=enums.ParseMode.HTML,
+            )
+        except Exception as e:
+            print(f"Error sending help: {e}")
+            await message.reply_text(
+                "Use /encode to queue a video, /es for settings, /status for queue."
+            )

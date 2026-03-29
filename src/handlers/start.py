@@ -1,54 +1,48 @@
-from pyrogram import filters, enums
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from src import Config
 import os
+from pyrogram import filters, enums
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from src import Config
 
 config = Config()
 
-async def start_command(client, message: Message):
-    user = message.from_user
-    start_image = "./src/bin/start.jpg"
-    
-    start_text = """
-<b>Welcome to the Encoding Bot!</b>
+START_TEXT = """
+<b>EncodeBot</b>
 
-Encode videos with full customization: set all encoding options and rename files easily.
+<i>Advanced video encoder and renamer</i>
 
-Use <b>/help</b> to see all commands and settings.
+EncodeBot allows you to encode a single file into multiple resolutions at once. You can choose different output resolutions in a single command and create all versions of the same file together.
 
-Join the main channel for updates and tips!
+Use /help to view the full command list.
 """
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Developer", url="https://t.me/aniindexadminbot"),
-        InlineKeyboardButton(" Channel", url="https://t.me/AniIndex")]
-    ])
-    
-    try:
-        # Check if image exists
-        if os.path.exists(start_image):
-            await message.reply_photo(
-                photo=start_image,
-                caption=start_text,
-                reply_markup=keyboard,
-                parse_mode=enums.ParseMode.HTML
-            )
-        else:
-            await message.reply_text(
-                text=start_text,
-                reply_markup=keyboard,
-                parse_mode=enums.ParseMode.HTML,
-                disable_web_page_preview=True
-            )
-    except Exception as e:
-        print(f"Error sending start message: {e}")
-        await message.reply_text(
-            text=f"Welcome {user.first_name}! Use /help to see commands.",
-            reply_markup=keyboard
-        )
+
+START_IMAGE = "./src/bin/start.jpg"
+
 
 def setup_start_handler(app):
-    """Setup start command handler"""
     @app.on_message(filters.command("start") & filters.private)
     async def start_handler(client, message: Message):
-        await start_command(client, message)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Developer", url="https://t.me/Renzo")]
+        ])
+
+        try:
+            if os.path.exists(START_IMAGE):
+                await message.reply_photo(
+                    photo=START_IMAGE,
+                    caption=START_TEXT,
+                    reply_markup=keyboard,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            else:
+                await message.reply_text(
+                    text=START_TEXT,
+                    reply_markup=keyboard,
+                    parse_mode=enums.ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
+        except Exception as e:
+            print(f"Error sending start: {e}")
+            await message.reply_text(
+                f"Welcome {message.from_user.first_name}! Use /help to see all commands.",
+                reply_markup=keyboard,
+            )
