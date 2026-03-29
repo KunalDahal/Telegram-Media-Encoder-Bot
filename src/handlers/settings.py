@@ -1,12 +1,9 @@
 from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, Message
 import os
-from src import Config
 from pyrogram.enums import ParseMode
 
-config = Config()
 RESOLUTION_OPTIONS = ["HDRip", "1080p", "720p", "480p"]
-
 PRESET_OPTIONS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
 CODEC_OPTIONS  = ["libx264", "libx265"]
 AUDIO_OPTIONS  = ["96k", "128k", "192k", "256k", "320k"]
@@ -63,15 +60,15 @@ def build_settings_text(name, username, user_id, settings):
         for res in ["HDRip", "1080p", "720p", "480p"]
     ])
 
-    wm = settings.get("watermark", {})
-    wm_on   = wm.get("enabled", False)
-    wm_text = wm.get("text", "") or "—"
-    wm_pos  = WM_POSITION_LABELS.get(wm.get("position", "bot_right"), "Bot Right")
+    wm       = settings.get("watermark", {})
+    wm_on    = wm.get("enabled", False)
+    wm_text  = wm.get("text", "") or "—"
+    wm_pos   = WM_POSITION_LABELS.get(wm.get("position", "bot_right"), "Bot Right")
     wm_color = wm.get("color", "white").capitalize()
-    if wm_on:
-        wm_summary = f"<u>On ✓</u>  <code>{wm_text}</code>  {wm_pos}  {wm_color}"
-    else:
-        wm_summary = "<i>Off</i>"
+    wm_summary = (
+        f"<u>On ✓</u>  <code>{wm_text}</code>  {wm_pos}  {wm_color}"
+        if wm_on else "<i>Off</i>"
+    )
 
     return (
         "<b>Encoding Settings</b>\n\n"
@@ -88,7 +85,8 @@ def build_settings_text(name, username, user_id, settings):
         f"Encoder : <code>{meta['encoder'] or '—'}</code>"
         "</blockquote>\n"
         f"<b>Thumbnail:</b> {thumb_status}\n\n"
-        f"<b>Watermark:</b> {wm_summary}"
+        f"<b>Watermark:</b> {wm_summary}\n\n"
+        f"<b>Filename Format:</b>\n<blockquote><code>{settings.get('format', DEFAULT_FORMAT)}</code></blockquote>"
     )
 
 
@@ -126,11 +124,9 @@ def build_watermark_text(wm: dict, subtitle: str = "") -> str:
     else:
         timing_str = f"Random  <code>{wm.get('duration', 30)}s</code> duration"
 
-    status = "Enabled" if enabled else "Disabled"
-
     return (
         f"<b>Watermark</b>{extra}\n\n"
-        f"Status    : {status}\n"
+        f"Status    : {'Enabled' if enabled else 'Disabled'}\n"
         f"Text      : <code>{text}</code>\n"
         f"Color     : <code>{color}</code>\n"
         f"Font      : <code>{font_name}</code>\n"
@@ -152,6 +148,7 @@ def build_main_keyboard():
         [InlineKeyboardButton("Metadata",         callback_data="set_metadata")],
         [InlineKeyboardButton("Thumbnail",        callback_data="set_thumbnail")],
         [InlineKeyboardButton("Watermark",        callback_data="set_watermark")],
+        [InlineKeyboardButton("Filename Format",  callback_data="set_format")],
         [InlineKeyboardButton("Reset All",        callback_data="reset_settings"),
          InlineKeyboardButton("Close",            callback_data="close_menu")],
     ])
@@ -177,7 +174,7 @@ def build_profiles_keyboard():
         [InlineKeyboardButton("1080p", callback_data="profile_res_1080p")],
         [InlineKeyboardButton("720p",  callback_data="profile_res_720p")],
         [InlineKeyboardButton("480p",  callback_data="profile_res_480p")],
-        [InlineKeyboardButton("Back", callback_data="back_to_menu"),
+        [InlineKeyboardButton("Back",  callback_data="back_to_menu"),
          InlineKeyboardButton("Reset", callback_data="profile_reset_all")],
     ])
 
@@ -229,25 +226,25 @@ def build_profile_edit_keyboard(resolution, profile):
         [InlineKeyboardButton(f"Preset: {profile.get('preset', 'medium')}",   callback_data=f"profile_edit_{resolution}_preset")],
         [InlineKeyboardButton(f"Codec: {profile.get('codec', 'libx264')}",    callback_data=f"profile_edit_{resolution}_codec")],
         [InlineKeyboardButton(f"Audio: {profile.get('audio_bitrate','128k')}", callback_data=f"profile_edit_{resolution}_audio")],
-        [InlineKeyboardButton("Back",                           callback_data="set_profiles"),
-         InlineKeyboardButton(f"Reset",            callback_data=f"profile_reset_{resolution}")],
+        [InlineKeyboardButton("Back",  callback_data="set_profiles"),
+         InlineKeyboardButton("Reset", callback_data=f"profile_reset_{resolution}")],
     ])
 
 
 def build_watermark_keyboard(wm: dict) -> InlineKeyboardMarkup:
-    enabled   = wm.get("enabled", False)
+    enabled    = wm.get("enabled", False)
     toggle_lbl = "Enabled — tap to disable" if enabled else "Disabled — tap to enable"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(toggle_lbl,          callback_data="wm_toggle")],
-        [InlineKeyboardButton("Text",           callback_data="wm_set_text"),
-         InlineKeyboardButton("Color",          callback_data="wm_set_color")],
-        [InlineKeyboardButton("Font",           callback_data="wm_set_font"),
-         InlineKeyboardButton("Timing",         callback_data="wm_set_timing")],
-        [InlineKeyboardButton("Font Size",      callback_data="wm_set_font_size"),
-         InlineKeyboardButton("Padding",        callback_data="wm_set_padding")],
-        [InlineKeyboardButton("Position",       callback_data="wm_set_position")],
-        [InlineKeyboardButton("Back",            callback_data="back_to_menu"),
-         InlineKeyboardButton("Reset", callback_data="wm_reset")],
+        [InlineKeyboardButton(toggle_lbl,     callback_data="wm_toggle")],
+        [InlineKeyboardButton("Text",         callback_data="wm_set_text"),
+         InlineKeyboardButton("Color",        callback_data="wm_set_color")],
+        [InlineKeyboardButton("Font",         callback_data="wm_set_font"),
+         InlineKeyboardButton("Timing",       callback_data="wm_set_timing")],
+        [InlineKeyboardButton("Font Size",    callback_data="wm_set_font_size"),
+         InlineKeyboardButton("Padding",      callback_data="wm_set_padding")],
+        [InlineKeyboardButton("Position",     callback_data="wm_set_position")],
+        [InlineKeyboardButton("Back",         callback_data="back_to_menu"),
+         InlineKeyboardButton("Reset",        callback_data="wm_reset")],
     ])
 
 
@@ -267,9 +264,9 @@ def build_wm_timing_keyboard(current_mode: str) -> InlineKeyboardMarkup:
         return f"[x] {label}" if mode == current_mode else label
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(lbl("full",            "Full Duration"),     callback_data="wm_timing_full")],
-        [InlineKeyboardButton(lbl("range",           "Start → End"),      callback_data="wm_timing_range")],
-        [InlineKeyboardButton(lbl("random_duration", "Random Duration"),  callback_data="wm_timing_random")],
+        [InlineKeyboardButton(lbl("full",            "Full Duration"),    callback_data="wm_timing_full")],
+        [InlineKeyboardButton(lbl("range",           "Start → End"),     callback_data="wm_timing_range")],
+        [InlineKeyboardButton(lbl("random_duration", "Random Duration"), callback_data="wm_timing_random")],
         [InlineKeyboardButton("Back", callback_data="set_watermark")],
     ])
 
@@ -296,51 +293,117 @@ def build_cancel_keyboard(label: str = "Cancel") -> InlineKeyboardMarkup:
     ])
 
 
-def get_thumbnail_path(settings):
-    thumbnail_path = (
-        settings["thumbnail_path"]
-        if settings["thumbnail_path"] and os.path.exists(settings["thumbnail_path"])
-        else "./src/bin/default.jpg"
+# ── Format helpers ────────────────────────────────────────────────────────────
+
+DEFAULT_FORMAT = "{title} S{season}E{episode} [{quality}] [{audio}].mkv"
+
+PLACEHOLDER_HELP = (
+    "<b>Available placeholders:</b>\n"
+    "<blockquote>"
+    "<code>{title}</code>     — show / movie title  <b>(required)</b>\n"
+    "<code>{episode}</code>   — episode number      <b>(required)</b>\n"
+    "<code>{quality}</code>   — resolution tag      <b>(required)</b>\n"
+    "<code>{season}</code>    — season number       <i>(optional)</i>\n"
+    "<code>{audio}</code>     — audio type/lang     <i>(optional)</i>"
+    "</blockquote>"
+)
+
+
+def build_format_text(fmt: str, subtitle: str = "") -> str:
+    extra = f"\n<i>{subtitle}</i>" if subtitle else ""
+    preview = (
+        fmt
+        .replace("{title}",   "<i>Title</i>")
+        .replace("{season}",  "<i>01</i>")
+        .replace("{episode}", "<i>01</i>")
+        .replace("{quality}", "<i>1080p</i>")
+        .replace("{audio}",   "<i>SUB</i>")
     )
-    return thumbnail_path if os.path.exists(thumbnail_path) else None
+    return (
+        f"<b>Filename Format</b>{extra}\n\n"
+        f"<b>Current:</b>\n<code>{fmt}</code>\n\n"
+        f"<b>Preview:</b>\n<code>{preview}</code>\n\n"
+        f"{PLACEHOLDER_HELP}\n\n"
+        "<i>Send a new format string, or use the buttons below.</i>"
+    )
+
+
+def build_format_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Set Format",    callback_data="format_set")],
+        [InlineKeyboardButton("Reset",  callback_data="format_reset")],
+        [InlineKeyboardButton("Back",             callback_data="back_to_menu")],
+    ])
+
+
+def get_thumbnail_path(settings, config=None):
+    thumb = settings.get("thumbnail_path", "")
+    if thumb and os.path.exists(thumb):
+        return thumb
+    default = config.paths.default_thumb if config else "./src/bin/default.jpg"
+    return default if os.path.exists(default) else None
 
 
 # ── Handler setup ─────────────────────────────────────────────────────────────
 
-def setup_settings_handlers(app: Client, user_settings):
+def setup_settings_handlers(app: Client, user_settings, config):
 
-    @app.on_message(filters.command("es") & filters.private)
+    allowed_group_filter = filters.chat(config.allowed_group_ids)
+
+    # ── /es — allowed groups only ─────────────────────────────────────────────
+    filters.command(["es", "us","encodesettings","settings","usersettings"]) & (filters.private | filters.chat(config.allowed_group_ids))
     async def us_command(client: Client, message: Message):
-        if message.from_user.id not in config.admin_ids:
-            await message.reply_text("Invalid!", parse_mode=ParseMode.HTML)
+        user_id = message.from_user.id
+
+        if user_id not in config.admin_ids:
+            await message.reply_text("Dukhi Atma!😔", parse_mode=ParseMode.HTML)
+            return
+
+        try:
+            await client.get_chat(user_id)
+        except Exception:
+            bot_username = (await client.get_me()).username
+            await message.reply_text(
+                f"⚠️ Please start the bot in DM first.\n"
+                f"👉 @{bot_username} — press <b>Start</b>, then try again.",
+                parse_mode=ParseMode.HTML,
+            )
             return
 
         user     = message.from_user
-        user_id  = user.id
         name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
         username = user.username or ""
         settings = user_settings(user_id).get()
 
         text           = build_settings_text(name, username, user_id, settings)
         keyboard       = build_main_keyboard()
-        thumbnail_path = get_thumbnail_path(settings)
+        thumbnail_path = get_thumbnail_path(settings, config)
 
-        if thumbnail_path:
-            try:
-                await message.reply_photo(
-                    photo=thumbnail_path, caption=text,
-                    reply_markup=keyboard, parse_mode=ParseMode.HTML
+        try:
+            if thumbnail_path:
+                await client.send_photo(
+                    chat_id=user_id,
+                    photo=thumbnail_path,
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
                 )
-                return
-            except Exception:
-                pass
-
-        await message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
-
-    # ── Main callback dispatcher ──────────────────────────────────────────────
+            else:
+                await client.send_message(
+                    chat_id=user_id,
+                    text=text,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
+            await message.reply_text("Settings sent to your DM!")
+        except Exception:
+            await message.reply_text(
+                "❌ Couldn't send to your DM. Please /start the bot first.",
+                parse_mode=ParseMode.HTML,
+            )
 
     @app.on_callback_query(filters.regex(
-        r"^(set_|res_|profile_|sendtype_|meta_|reset_|back_to|close_|wm_|cancel_input)"
+        r"^(set_|res_|profile_|sendtype_|meta_|reset_|back_to|close_|wm_|cancel_input|format_)"
     ))
     async def handle_settings_callbacks(client: Client, callback_query: CallbackQuery):
         user    = callback_query.from_user
@@ -348,7 +411,6 @@ def setup_settings_handlers(app: Client, user_settings):
         data    = callback_query.data
         message = callback_query.message
 
-        # ── Quality Profiles list ─────────────────────────────────────────────
         if data == "set_profiles":
             await message.edit_text(
                 "<b>Quality Profiles</b>\n\n"
@@ -455,7 +517,7 @@ def setup_settings_handlers(app: Client, user_settings):
                     settings_obj.update_profile(res, "codec",         prof["codec"])
                     settings_obj.update_profile(res, "audio_bitrate", prof["audio_bitrate"])
                 await callback_query.answer("All profiles reset to defaults")
-                await update_main_menu(client, message, user_id)
+                await update_main_menu(client, message, user_id, config)
                 return
             elif resolution in ["1080p", "720p", "480p"]:
                 default = DEFAULT_PROFILES[resolution]
@@ -485,8 +547,6 @@ def setup_settings_handlers(app: Client, user_settings):
                 await callback_query.answer()
                 return
 
-        # ── Resolution toggle ─────────────────────────────────────────────────
-
         elif data == "set_resolution":
             await update_resolution_menu(message, user_id)
 
@@ -496,8 +556,6 @@ def setup_settings_handlers(app: Client, user_settings):
             await callback_query.answer(status_text, show_alert=not changed)
             await update_resolution_menu(message, user_id)
             return
-
-        # ── Send type ─────────────────────────────────────────────────────────
 
         elif data == "set_send_type":
             keyboard = InlineKeyboardMarkup([
@@ -517,10 +575,8 @@ def setup_settings_handlers(app: Client, user_settings):
             send_type = data.replace("sendtype_", "")
             user_settings(user_id).update("send_type", send_type)
             await callback_query.answer(f"Send type → {send_type.capitalize()}")
-            await update_main_menu(client, message, user_id)
+            await update_main_menu(client, message, user_id, config)
             return
-
-        # ── Metadata ──────────────────────────────────────────────────────────
 
         elif data == "set_metadata":
             keyboard = InlineKeyboardMarkup([
@@ -577,10 +633,8 @@ def setup_settings_handlers(app: Client, user_settings):
         elif data == "meta_clear":
             user_settings(user_id).update_metadata(title="", author="", encoder="")
             await callback_query.answer("Metadata cleared")
-            await update_main_menu(client, message, user_id)
+            await update_main_menu(client, message, user_id, config)
             return
-
-        # ── Thumbnail ─────────────────────────────────────────────────────────
 
         elif data == "set_thumbnail":
             sent_message = await message.edit_text(
@@ -594,8 +648,6 @@ def setup_settings_handlers(app: Client, user_settings):
                 "back_to": "main",
             }
 
-        # ── Watermark ─────────────────────────────────────────────────────────
-
         elif data == "set_watermark":
             wm = user_settings(user_id).get_watermark()
             await message.edit_text(
@@ -607,8 +659,8 @@ def setup_settings_handlers(app: Client, user_settings):
             return
 
         elif data == "wm_toggle":
-            us = user_settings(user_id)
-            wm = us.get_watermark()
+            us        = user_settings(user_id)
+            wm        = us.get_watermark()
             new_state = not wm.get("enabled", False)
             us.update_watermark(enabled=new_state)
             wm = us.get_watermark()
@@ -662,8 +714,7 @@ def setup_settings_handlers(app: Client, user_settings):
         elif data == "wm_set_font":
             sent_message = await message.edit_text(
                 "<b>Watermark Font</b>\n\n"
-                "Send a <code>.ttf</code> or <code>.otf</code> font file to use a custom font.\n\n"
-                "The font family name will be extracted and stored automatically.\n\n",
+                "Send a <code>.ttf</code> or <code>.otf</code> font file.\n\n",
                 reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
@@ -682,7 +733,7 @@ def setup_settings_handlers(app: Client, user_settings):
                 "<blockquote>"
                 "<b>Full Duration</b>  Visible for the entire video.\n\n"
                 "<b>Start → End</b>  Visible between two exact timestamps.\n\n"
-                "<b>Random Duration</b>  Appears for N seconds at a random point in the video.</blockquote>",
+                "<b>Random Duration</b>  Appears for N seconds at a random point.</blockquote>",
                 reply_markup=build_wm_timing_keyboard(wm.get("timing_mode", "range")),
                 parse_mode=ParseMode.HTML
             )
@@ -721,8 +772,7 @@ def setup_settings_handlers(app: Client, user_settings):
             sent_message = await message.edit_text(
                 "<b>Random Duration</b>\n\n"
                 "Send the <b>duration in seconds</b> the watermark should be visible.\n"
-                "<i>Example: <code>30</code></i>\n\n"
-                "A random start time will be chosen automatically.\n\n",
+                "<i>Example: <code>30</code></i>\n\n",
                 reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
@@ -768,9 +818,7 @@ def setup_settings_handlers(app: Client, user_settings):
             sent_message = await message.edit_text(
                 "<b>Watermark Padding</b>\n\n"
                 f"Current: <code>{wm.get('padding', 7)}%</code>\n\n"
-                "Padding controls how far the watermark sits from the frame edge.\n"
-                "Send a whole number between <code>1</code> and <code>25</code>.\n\n"
-                "<i>Example: <code>7</code> = 7% of frame width/height</i>\n\n",
+                "Send a whole number between <code>1</code> and <code>25</code>.\n\n",
                 reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
@@ -807,12 +855,10 @@ def setup_settings_handlers(app: Client, user_settings):
             )
             return
 
-        # ── Cancel pending input ──────────────────────────────────────────────
-
         elif data == "cancel_input":
-            us = user_settings(user_id)
+            us         = user_settings(user_id)
             state_data = us.temp_state.get(user_id, {})
-            back_to = state_data.get("back_to", "main") if isinstance(state_data, dict) else "main"
+            back_to    = state_data.get("back_to", "main") if isinstance(state_data, dict) else "main"
             us.temp_state.pop(user_id, None)
             await callback_query.answer("Cancelled")
 
@@ -821,6 +867,13 @@ def setup_settings_handlers(app: Client, user_settings):
                 await message.edit_text(
                     build_watermark_text(wm),
                     reply_markup=build_watermark_keyboard(wm),
+                    parse_mode=ParseMode.HTML
+                )
+            elif back_to == "format":
+                fmt = us.get().get("format", DEFAULT_FORMAT)
+                await message.edit_text(
+                    build_format_text(fmt),
+                    reply_markup=build_format_keyboard(),
                     parse_mode=ParseMode.HTML
                 )
             elif back_to == "metadata":
@@ -840,26 +893,64 @@ def setup_settings_handlers(app: Client, user_settings):
                 )
             elif back_to.startswith("profile_"):
                 resolution = back_to.replace("profile_", "")
-                profile = us.get_profile(resolution)
+                profile    = user_settings(user_id).get_profile(resolution)
                 await message.edit_text(
                     build_profile_text(resolution, profile),
                     reply_markup=build_profile_edit_keyboard(resolution, profile),
                     parse_mode=ParseMode.HTML
                 )
             else:
-                await update_main_menu(client, message, user_id)
+                await update_main_menu(client, message, user_id, config)
             return
 
-        # ── Reset / back / close ──────────────────────────────────────────────
+        elif data == "set_format":
+            fmt = user_settings(user_id).get().get("format", DEFAULT_FORMAT)
+            await message.edit_text(
+                build_format_text(fmt),
+                reply_markup=build_format_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+            await callback_query.answer()
+            return
+
+        elif data == "format_set":
+            us  = user_settings(user_id)
+            fmt = us.get().get("format", DEFAULT_FORMAT)
+            sent_message = await message.edit_text(
+                f"<b>Set Filename Format</b>\n\n"
+                f"Current:\n<code>{fmt}</code>\n\n"
+                f"{PLACEHOLDER_HELP}\n\n"
+                "<i>Send your new format string now.</i>",
+                reply_markup=build_cancel_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+            us.temp_state[user_id] = {
+                "state":             "waiting_format",
+                "prompt_message_id": sent_message.id,
+                "back_to":           "format",
+            }
+            await callback_query.answer()
+            return
+
+        elif data == "format_reset":
+            us = user_settings(user_id)
+            us.set_format(DEFAULT_FORMAT)
+            await callback_query.answer("Format reset to default ✓")
+            await message.edit_text(
+                build_format_text(DEFAULT_FORMAT, "Reset to default ✓"),
+                reply_markup=build_format_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+            return
 
         elif data == "reset_settings":
             user_settings(user_id).reset()
             await callback_query.answer("Settings reset to defaults")
-            await update_main_menu(client, message, user_id)
+            await update_main_menu(client, message, user_id, config)
             return
 
         elif data == "back_to_menu":
-            await update_main_menu(client, message, user_id)
+            await update_main_menu(client, message, user_id, config)
             return
 
         elif data == "close_menu":
@@ -869,7 +960,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         await callback_query.answer()
 
-    # ── Helper: resolution menu ───────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     async def update_resolution_menu(message, user_id):
         settings = user_settings(user_id).get()
@@ -881,9 +972,7 @@ def setup_settings_handlers(app: Client, user_settings):
             parse_mode=ParseMode.HTML
         )
 
-    # ── Helper: rebuild main menu ─────────────────────────────────────────────
-
-    async def update_main_menu(client, message, user_id):
+    async def update_main_menu(client, message, user_id, config):
         user     = await client.get_users(user_id)
         name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
         username = user.username or ""
@@ -891,7 +980,7 @@ def setup_settings_handlers(app: Client, user_settings):
 
         text           = build_settings_text(name, username, user_id, settings)
         keyboard       = build_main_keyboard()
-        thumbnail_path = get_thumbnail_path(settings)
+        thumbnail_path = get_thumbnail_path(settings, config)
 
         try:
             if message.photo and thumbnail_path:
@@ -919,7 +1008,7 @@ def setup_settings_handlers(app: Client, user_settings):
                     reply_markup=keyboard, parse_mode=ParseMode.HTML
                 )
 
-    # ── Text input handler ────────────────────────────────────────────────────
+    # ── Text input handler (DM only — users reply to the settings msg in DM) ──
 
     @app.on_message(filters.text & filters.private)
     async def handle_text_input(client: Client, message: Message):
@@ -935,7 +1024,6 @@ def setup_settings_handlers(app: Client, user_settings):
         state             = state_data["state"] if isinstance(state_data, dict) else state_data
         prompt_message_id = state_data.get("prompt_message_id") if isinstance(state_data, dict) else None
 
-        # ── Profile CRF ──────────────────────────────────────────────────────
         if state.startswith("waiting_profile_"):
             parts = state.split("_")
             if len(parts) >= 4 and parts[3] == "crf":
@@ -965,7 +1053,6 @@ def setup_settings_handlers(app: Client, user_settings):
                     await message.reply_text("<b>Invalid input.</b> Please send a whole number.", parse_mode=ParseMode.HTML)
             return
 
-        # ── Metadata ──────────────────────────────────────────────────────────
         elif state == "waiting_meta_title":
             us.update_metadata(title=message.text)
             del us.temp_state[user_id]
@@ -973,7 +1060,18 @@ def setup_settings_handlers(app: Client, user_settings):
                 await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
             except Exception:
                 pass
-            await us_command(client, message)
+            # Rebuild the settings menu in DM
+            user     = message.from_user
+            name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            username = user.username or ""
+            settings = us.get()
+            text     = build_settings_text(name, username, user_id, settings)
+            keyboard = build_main_keyboard()
+            thumb    = get_thumbnail_path(settings, config)
+            if thumb:
+                await client.send_photo(chat_id=user_id, photo=thumb, caption=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            else:
+                await client.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
         elif state == "waiting_meta_author":
             us.update_metadata(author=message.text)
@@ -982,7 +1080,17 @@ def setup_settings_handlers(app: Client, user_settings):
                 await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
             except Exception:
                 pass
-            await us_command(client, message)
+            user     = message.from_user
+            name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            username = user.username or ""
+            settings = us.get()
+            text     = build_settings_text(name, username, user_id, settings)
+            keyboard = build_main_keyboard()
+            thumb    = get_thumbnail_path(settings, config)
+            if thumb:
+                await client.send_photo(chat_id=user_id, photo=thumb, caption=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            else:
+                await client.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
         elif state == "waiting_meta_encoder":
             us.update_metadata(encoder=message.text)
@@ -991,9 +1099,56 @@ def setup_settings_handlers(app: Client, user_settings):
                 await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
             except Exception:
                 pass
-            await us_command(client, message)
+            user     = message.from_user
+            name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            username = user.username or ""
+            settings = us.get()
+            text     = build_settings_text(name, username, user_id, settings)
+            keyboard = build_main_keyboard()
+            thumb    = get_thumbnail_path(settings, config)
+            if thumb:
+                await client.send_photo(chat_id=user_id, photo=thumb, caption=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            else:
+                await client.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-        # ── Watermark text ────────────────────────────────────────────────────
+        elif state == "waiting_format":
+            import re as _re
+            fmt = message.text.strip()
+            # Validate required placeholders
+            missing = [p for p in ("{quality}", "{title}", "{episode}") if p not in fmt]
+            if missing:
+                await message.reply_text(
+                    f"❌ Missing required placeholder(s): "
+                    f"{', '.join(f'<code>{m}</code>' for m in missing)}\n\n"
+                    f"{PLACEHOLDER_HELP}",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            # Validate file extension
+            dummy_name = _re.sub(r"\{[^}]+\}", "X", fmt)
+            _, ext = os.path.splitext(dummy_name)
+            ALLOWED_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi",
+                            ".mpeg", ".mpg", ".wmv", ".flv", ".3gp"}
+            if ext.lower() not in ALLOWED_EXTS:
+                await message.reply_text(
+                    "❌ Format must end with a valid video extension "
+                    "(e.g. <code>.mkv</code>, <code>.mp4</code>).",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            us.set_format(fmt)
+            del us.temp_state[user_id]
+            try:
+                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
+            except Exception:
+                pass
+            await client.send_message(
+                user_id,
+                build_format_text(fmt, "Format updated ✓"),
+                reply_markup=build_format_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+
         elif state == "waiting_wm_text":
             text_val = message.text.strip()
             if text_val:
@@ -1013,7 +1168,6 @@ def setup_settings_handlers(app: Client, user_settings):
             else:
                 await message.reply_text("Text cannot be empty.", parse_mode=ParseMode.HTML)
 
-        # ── Watermark timing: range start ─────────────────────────────────────
         elif state == "waiting_wm_range_start":
             try:
                 start = int(message.text)
@@ -1041,7 +1195,6 @@ def setup_settings_handlers(app: Client, user_settings):
             except ValueError:
                 await message.reply_text("Please send a valid non-negative number.", parse_mode=ParseMode.HTML)
 
-        # ── Watermark timing: range end ───────────────────────────────────────
         elif state == "waiting_wm_range_end":
             try:
                 end = int(message.text)
@@ -1068,7 +1221,6 @@ def setup_settings_handlers(app: Client, user_settings):
             except ValueError:
                 await message.reply_text("Please send a valid number.", parse_mode=ParseMode.HTML)
 
-        # ── Watermark timing: random duration ─────────────────────────────────
         elif state == "waiting_wm_duration":
             try:
                 duration = int(message.text)
@@ -1090,7 +1242,6 @@ def setup_settings_handlers(app: Client, user_settings):
             except ValueError:
                 await message.reply_text("Please send a positive number of seconds.", parse_mode=ParseMode.HTML)
 
-        # ── Watermark font size ───────────────────────────────────────────────
         elif state == "waiting_wm_font_size":
             try:
                 size = int(message.text)
@@ -1115,7 +1266,6 @@ def setup_settings_handlers(app: Client, user_settings):
                     parse_mode=ParseMode.HTML
                 )
 
-        # ── Watermark padding ─────────────────────────────────────────────────
         elif state == "waiting_wm_padding":
             try:
                 padding = int(message.text)
@@ -1140,7 +1290,7 @@ def setup_settings_handlers(app: Client, user_settings):
                     parse_mode=ParseMode.HTML
                 )
 
-    # ── Thumbnail photo handler ───────────────────────────────────────────────
+    # ── Thumbnail photo handler (DM only) ─────────────────────────────────────
 
     @app.on_message(filters.photo & filters.private)
     async def handle_thumbnail(client: Client, message: Message):
@@ -1156,7 +1306,7 @@ def setup_settings_handlers(app: Client, user_settings):
         prompt_message_id = state_data.get("prompt_message_id")
 
         try:
-            thumb_dir  = "./src/bin/thumbnails"
+            thumb_dir  = config.paths.thumbnails
             os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{user_id}.jpg")
 
@@ -1174,12 +1324,23 @@ def setup_settings_handlers(app: Client, user_settings):
             except Exception:
                 pass
 
-            await us_command(client, message)
+            # Rebuild the settings menu in DM
+            user     = message.from_user
+            name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            username = user.username or ""
+            settings = us.get()
+            text     = build_settings_text(name, username, user_id, settings)
+            keyboard = build_main_keyboard()
+            thumb    = get_thumbnail_path(settings, config)
+            if thumb:
+                await client.send_photo(chat_id=user_id, photo=thumb, caption=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            else:
+                await client.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
         except Exception as e:
             await message.reply_text(f"<b>Error saving thumbnail:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
 
-    # ── Font file document handler ────────────────────────────────────────────
+    # ── Font file document handler (DM only) ──────────────────────────────────
 
     @app.on_message(filters.document & filters.private)
     async def handle_font_upload(client: Client, message: Message):
@@ -1199,7 +1360,7 @@ def setup_settings_handlers(app: Client, user_settings):
             return
 
         file_name = doc.file_name or ""
-        ext = os.path.splitext(file_name)[1].lower()
+        ext       = os.path.splitext(file_name)[1].lower()
 
         if ext not in (".ttf", ".otf"):
             await message.reply_text(
@@ -1209,9 +1370,9 @@ def setup_settings_handlers(app: Client, user_settings):
             return
 
         try:
-            fonts_dir = "./src/bin/fonts"
+            fonts_dir = config.paths.fonts
             os.makedirs(fonts_dir, exist_ok=True)
-            tmp_path = os.path.join(fonts_dir, f"tmp_{user_id}{ext}")
+            tmp_path  = os.path.join(fonts_dir, f"tmp_{user_id}{ext}")
 
             downloaded = await client.download_media(message, file_name=tmp_path)
             if not downloaded or not os.path.exists(downloaded):

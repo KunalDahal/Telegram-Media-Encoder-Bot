@@ -1,27 +1,24 @@
 import asyncio
-import copy
 import os
 import shutil
 from datetime import datetime
 
-# Absolute path to src/ regardless of where the process is launched from
-_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 
 class Worker:
-    def __init__(self, task_queue, user_settings_getter, ffmpeg, client):
-        self.task_queue = task_queue
+    def __init__(self, task_queue, user_settings_getter, ffmpeg, client, config):
+        self.task_queue          = task_queue
         self.user_settings_getter = user_settings_getter
-        self.ffmpeg = ffmpeg
-        self.client = client
-        self.temp_base = os.path.join(_SRC_DIR, "bin", "tmp")
-        self.thumbnails_dir = os.path.join(_SRC_DIR, "bin", "thumbnails")
-        self.running = False
-        self.current_task = None
+        self.ffmpeg              = ffmpeg
+        self.client              = client
+        self.config              = config
+        self.temp_base      = config.paths.tmp
+        self.thumbnails_dir = config.paths.thumbnails
+        self.running        = False
+        self.current_task   = None
         self.current_task_id = None
         self.processing_task = None
 
-        os.makedirs(self.temp_base, exist_ok=True)
+        os.makedirs(self.temp_base,      exist_ok=True)
         os.makedirs(self.thumbnails_dir, exist_ok=True)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -34,7 +31,7 @@ class Worker:
                     next_task = self.task_queue.get_next_task()
                     if next_task:
                         self.current_task_id = next_task["task_id"]
-                        self.current_task = next_task
+                        self.current_task    = next_task
                         self.task_queue.set_processing(True)
                         self.task_queue.update_status(self.current_task_id, "queued", 0)
 
@@ -69,7 +66,7 @@ class Worker:
                     print(f"Error during cancellation: {e}")
 
                 self.current_task_id = None
-                self.current_task = None
+                self.current_task    = None
                 self.task_queue.set_processing(False)
                 self.task_queue.update_status(task_id, "cancelled", 0)
 
@@ -103,16 +100,17 @@ class Worker:
     def _set_stage(self, task: dict, stage: str, progress: int = None):
         task["current_stage"] = stage
         self.task_queue.update_status(
-            task["task_id"], stage, progress if progress is not None else task.get("progress", 0)
+            task["task_id"], stage,
+            progress if progress is not None else task.get("progress", 0)
         )
 
     # ── Main processor ────────────────────────────────────────────────────────
 
     async def process_task(self, task: dict):
-        task_id = task["task_id"]
+        task_id     = task["task_id"]
         task_folder = os.path.join(self.temp_base, task_id)
 
-        downloaded_path = None
+        downloaded_path  = None
         encoded_paths: list[str] = []
 
         try:
@@ -133,24 +131,24 @@ class Worker:
 
             jobs = task.get("jobs") or [
                 {
-                    "resolution": task.get("resolution", "1080p"),
+                    "resolution":      task.get("resolution", "1080p"),
                     "output_filename": task["output_filename"],
                     "processing_mode": (
                         "metadata_only"
                         if task.get("resolution") == "HDRip"
                         else "encode"
                     ),
-                    "crf": task.get("crf", 28),
-                    "preset": task.get("preset", "medium"),
-                    "codec": task.get("codec", "libx264"),
-                    "audio_bitrate": task.get("audio_bitrate", "128k"),
-                    "metadata": task.get("metadata", {}),
+                    "crf":            task.get("crf", 28),
+                    "preset":         task.get("preset", "medium"),
+                    "codec":          task.get("codec", "libx264"),
+                    "audio_bitrate":  task.get("audio_bitrate", "128k"),
+                    "metadata":       task.get("metadata", {}),
                     "thumbnail_path": task.get("thumbnail_path", ""),
-                    "send_type": task.get("send_type", "media"),
+                    "send_type":      task.get("send_type", "media"),
                 }
             ]
 
-            total_jobs = len(jobs)
+            total_jobs         = len(jobs)
             task["total_jobs"] = total_jobs
 
             from src.services.encoder import Encoder
@@ -160,13 +158,13 @@ class Worker:
 
             # ── 3. Sequential: encode → upload per resolution ─────────────────
             for job_index, job in enumerate(jobs, start=1):
-                resolution = job["resolution"]
+                resolution      = job["resolution"]
                 output_filename = job["output_filename"]
                 processing_mode = job.get("processing_mode", "encode")
 
-                task["current_job"] = job_index
-                task["resolution"] = resolution
-                task["output_filename"] = output_filename
+                task["current_job"]      = job_index
+                task["resolution"]       = resolution
+                task["output_filename"]  = output_filename
                 task["current_job_mode"] = processing_mode
 
                 # ── 3a. Encode / copy ─────────────────────────────────────────
@@ -182,7 +180,7 @@ class Worker:
                     "metadata":        job.get("metadata", {}),
                     "thumbnail_path":  job.get("thumbnail_path", ""),
                     "send_type":       job.get("send_type", "media"),
-                    "media_info":      task.get("media_info", {}),\
+                    "media_info":      task.get("media_info", {}),
                     "watermark":       task.get("watermark"),
                 }
 
@@ -198,12 +196,12 @@ class Worker:
                         f"Encoding failed for {resolution}: output file not found"
                     )
 
-                # ── 3b. Upload ────────────────────────────────────────────────
+                # ── 3b. Upload to user's DM ───────────────────────────────────
                 self._set_stage(task, "uploading", _upload_progress_base(job_index, total_jobs))
 
                 task["upload_file_path"] = encoded_path
-                task["thumbnail_path"] = job.get("thumbnail_path", "")
-                task["send_type"] = job.get("send_type", "media")
+                task["thumbnail_path"]   = job.get("thumbnail_path", "")
+                task["send_type"]        = job.get("send_type", "media")
 
                 uploader = Uploader(self.client, task, self.task_queue)
                 await uploader.upload()
@@ -219,10 +217,9 @@ class Worker:
             # ── 4. Done ───────────────────────────────────────────────────────
             self.task_queue.remove_task(task_id)
 
-            res_list = " · ".join(job["resolution"] for job in jobs)
             await self.notify_user(
                 task["user_id"],
-                f"Task `{task_id[:8]}` completed.\n",
+                f"✅ Task `{task_id[:8]}` completed.",
             )
 
         except asyncio.CancelledError:
@@ -261,7 +258,7 @@ class Worker:
                     print(f"Cleanup error for {task_folder}: {e}")
 
             self.current_task_id = None
-            self.current_task = None
+            self.current_task    = None
             self.task_queue.set_processing(False)
 
     # ── Utilities ─────────────────────────────────────────────────────────────
@@ -276,7 +273,6 @@ class Worker:
 # ── Progress helpers ──────────────────────────────────────────────────────────
 
 def _encode_progress_base(job_index: int, total_jobs: int) -> int:
-
     per_job = 80 // total_jobs
     return 20 + (job_index - 1) * per_job
 

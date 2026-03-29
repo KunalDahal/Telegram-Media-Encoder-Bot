@@ -17,7 +17,11 @@ class Encoder:
         resolution = task_data.get("resolution", "1080p")
 
         base_name, ext = os.path.splitext(output_file_name)
-        temp_output_name = f"{base_name}_{resolution}_temp{ext or '.mp4'}"
+        # Use a plain alphanumeric temp name to avoid FFmpeg choking on
+        # special characters (brackets, spaces, @) in the user-supplied filename.
+        task_id_short = task_data.get("task_id", "enc")[:8]
+        safe_ext = ext if ext else ".mp4"
+        temp_output_name = f"_tmp_{task_id_short}_{resolution}{safe_ext}"
         temp_output_path = os.path.join(task_folder, temp_output_name)
         final_output_path = os.path.join(task_folder, output_file_name)
 

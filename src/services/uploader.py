@@ -2,45 +2,49 @@ import os
 import shutil
 import time
 
-_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_TMP_DIR  = os.path.join(_SRC_DIR, "bin", "tmp")
 
 class Uploader:
-    def __init__(self, client, task_data: dict, task_queue=None):
-        self.client = client
-        self.task_data = task_data
+    def __init__(self, client, task_data: dict, task_queue=None, tmp_dir: str = None):
+        self.client     = client
+        self.task_data  = task_data
         self.task_queue = task_queue
-        self._last_time = None
+        self._tmp_dir   = tmp_dir or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "tmp"
+        )
+        self._last_time  = None
         self._last_bytes = 0
         self._start_time = None
         self.upload_progress = {
             "total_size": 0,
-            "uploaded": 0,
+            "uploaded":   0,
             "percentage": 0,
-            "speed": 0,
-            "eta": 0,
-            "elapsed": 0,
-            "status": "idle"
+            "speed":      0,
+            "eta":        0,
+            "elapsed":    0,
+            "status":     "idle",
         }
 
     async def upload(self):
-        task_id = self.task_data["task_id"]
-        user_id = self.task_data["user_id"]
+        task_id         = self.task_data["task_id"]
+        user_id         = self.task_data["user_id"]          # always DM
         output_file_name = self.task_data["output_filename"]
-        send_type = self.task_data.get("send_type", "media")
-        thumbnail_path = self.task_data.get("thumbnail_path", "")
+        send_type       = self.task_data.get("send_type", "media")
+        thumbnail_path  = self.task_data.get("thumbnail_path", "")
 
-        task_folder = os.path.join(_TMP_DIR, task_id)
-        explicit_file_path = self.task_data.get("upload_file_path")
+        task_folder         = os.path.join(self._tmp_dir, task_id)
+        explicit_file_path  = self.task_data.get("upload_file_path")
 
         if explicit_file_path and os.path.exists(explicit_file_path):
             final_file_path = explicit_file_path
         else:
-            encoded_files = [f for f in os.listdir(task_folder) if f.endswith((".mp4", ".mkv", ".avi", ".mov", ".webm"))]
+            encoded_files = [
+                f for f in os.listdir(task_folder)
+                if f.endswith((".mp4", ".mkv", ".avi", ".mov", ".webm"))
+            ]
             if not encoded_files:
                 raise Exception("No encoded file found in task folder")
 
-            current_file = os.path.join(task_folder, encoded_files[0])
+            current_file    = os.path.join(task_folder, encoded_files[0])
             final_file_path = os.path.join(task_folder, output_file_name)
             if current_file != final_file_path:
                 shutil.move(current_file, final_file_path)
@@ -51,18 +55,16 @@ class Uploader:
         file_size = os.path.getsize(final_file_path)
 
         self.upload_progress["total_size"] = file_size
-        self.upload_progress["status"] = "uploading"
+        self.upload_progress["status"]     = "uploading"
         self._start_time = time.time()
-        self._last_time = None
+        self._last_time  = None
         self._last_bytes = 0
 
         try:
             caption = f"**{output_file_name}**\n"
+            thumb   = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
 
-            thumb = None
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                thumb = thumbnail_path
-
+            # Deliver to user's DM (user_id)
             if send_type.lower() in ["doc", "document"]:
                 result = await self.client.send_document(
                     chat_id=user_id,
@@ -71,7 +73,7 @@ class Uploader:
                     caption=caption,
                     force_document=True,
                     file_name=output_file_name,
-                    progress=self._progress_callback
+                    progress=self._progress_callback,
                 )
             else:
                 result = await self.client.send_video(
@@ -80,7 +82,7 @@ class Uploader:
                     thumb=thumb,
                     caption=caption,
                     supports_streaming=True,
-                    progress=self._progress_callback
+                    progress=self._progress_callback,
                 )
 
             self.upload_progress["status"] = "completed"
@@ -94,35 +96,35 @@ class Uploader:
         now = time.time()
 
         if self._last_time is None:
-            self._last_time = now
+            self._last_time  = now
             self._last_bytes = current
             return
 
         elapsed = now - self._last_time
-        speed = (current - self._last_bytes) / elapsed if elapsed > 0 else 0
+        speed   = (current - self._last_bytes) / elapsed if elapsed > 0 else 0
 
-        self._last_time = now
+        self._last_time  = now
         self._last_bytes = current
 
-        percentage = (current / total) * 100 if total > 0 else 0
-        remaining = total - current
-        eta = remaining / speed if speed > 0 else 0
+        percentage    = (current / total) * 100 if total > 0 else 0
+        remaining     = total - current
+        eta           = remaining / speed if speed > 0 else 0
         total_elapsed = now - self._start_time if self._start_time else 0
 
         self.upload_progress.update({
-            "uploaded": current,
+            "uploaded":   current,
             "percentage": round(percentage, 2),
-            "speed": round(speed, 2),
-            "eta": int(eta),
-            "elapsed": int(total_elapsed),
-            "status": "uploading"
+            "speed":      round(speed, 2),
+            "eta":        int(eta),
+            "elapsed":    int(total_elapsed),
+            "status":     "uploading",
         })
 
         if self.task_queue and hasattr(self.task_queue, "update_status"):
             self.task_queue.update_status(
                 self.task_data["task_id"],
                 "uploading",
-                round(percentage, 2)
+                round(percentage, 2),
             )
 
     def get_progress(self) -> dict:

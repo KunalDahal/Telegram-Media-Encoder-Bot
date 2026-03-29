@@ -2,14 +2,12 @@ import os
 import asyncio
 import time
 
-_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 class Downloader:
-    def __init__(self, temp_base: str = None, task_queue=None, task_id=None):
-        self.temp_base = temp_base if temp_base else os.path.join(_SRC_DIR, "bin", "tmp")
+    def __init__(self, temp_base: str, task_queue=None, task_id=None):
+        self.temp_base  = temp_base
         self.task_queue = task_queue
-        self.task_id = task_id
-        self._last_time = None
+        self.task_id    = task_id
+        self._last_time  = None
         self._last_bytes = 0
         self._start_time = None
 
@@ -19,19 +17,19 @@ class Downloader:
             "total_size": 0,
             "downloaded": 0,
             "percentage": 0,
-            "speed": 0,
-            "eta": 0,
-            "elapsed": 0,
-            "status": "idle",
+            "speed":      0,
+            "eta":        0,
+            "elapsed":    0,
+            "status":     "idle",
         }
 
     async def download(self, client, task_data: dict) -> str:
-        task_id = task_data["task_id"]
-        file_id = task_data["file_id"]
+        task_id            = task_data["task_id"]
+        file_id            = task_data["file_id"]
         original_file_name = task_data.get("original_file_name") or f"video_{task_id}.mkv"
-        self.task_id = task_id
+        self.task_id       = task_id
 
-        task_folder = os.path.join(self.temp_base, task_id)
+        task_folder  = os.path.join(self.temp_base, task_id)
         os.makedirs(task_folder, exist_ok=True)
 
         desired_path = os.path.join(task_folder, original_file_name)
@@ -86,35 +84,31 @@ class Downloader:
             self.download_progress["total_size"] = total
 
         if self._last_time is None:
-            self._last_time = now
+            self._last_time  = now
             self._last_bytes = current
             return
 
         elapsed_interval = now - self._last_time
         speed = (current - self._last_bytes) / elapsed_interval if elapsed_interval > 0 else 0
 
-        self._last_time = now
+        self._last_time  = now
         self._last_bytes = current
 
-        percentage = (current / total * 100) if total > 0 else 0
-        eta = ((total - current) / speed) if speed > 0 else 0
+        percentage    = (current / total * 100) if total > 0 else 0
+        eta           = ((total - current) / speed) if speed > 0 else 0
         total_elapsed = (now - self._start_time) if self._start_time else 0
 
-        self.download_progress.update(
-            {
-                "downloaded": current,
-                "percentage": round(percentage, 2),
-                "speed": round(speed, 2),
-                "eta": int(eta),
-                "elapsed": int(total_elapsed),
-                "status": "downloading",
-            }
-        )
+        self.download_progress.update({
+            "downloaded": current,
+            "percentage": round(percentage, 2),
+            "speed":      round(speed, 2),
+            "eta":        int(eta),
+            "elapsed":    int(total_elapsed),
+            "status":     "downloading",
+        })
 
         if self.task_queue and self.task_id:
-            self.task_queue.update_status(
-                self.task_id, "downloading", round(percentage, 2)
-            )
+            self.task_queue.update_status(self.task_id, "downloading", round(percentage, 2))
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -123,12 +117,12 @@ class Downloader:
             "total_size": 0,
             "downloaded": 0,
             "percentage": 0,
-            "speed": 0,
-            "eta": 0,
-            "elapsed": 0,
-            "status": "idle",
+            "speed":      0,
+            "eta":        0,
+            "elapsed":    0,
+            "status":     "idle",
         }
-        self._last_time = None
+        self._last_time  = None
         self._last_bytes = 0
         self._start_time = None
 

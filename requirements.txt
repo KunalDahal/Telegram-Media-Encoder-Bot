@@ -10,3 +10,4 @@ aiohttp
 telegraph
 httpx
 fonttools
+pymediainfo

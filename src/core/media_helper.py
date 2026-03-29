@@ -1,128 +1,180 @@
 import os
-import re
 import asyncio
-from shlex import split as ssplit
-from aiohttp import ClientSession
 import aiofiles
+from pymediainfo import MediaInfo
 from telegraph.aio import Telegraph
 from telegraph.exceptions import RetryAfterError
 
+
 class MediaInfoHelper:
     def __init__(self):
-        self.telegraph = Telegraph(domain='graph.org')
+        self.telegraph    = Telegraph(domain="graph.org")
         self.access_token = None
-        self.author_name = "Encode Bot"
-        self.author_url = "https://t.me/your_bot_username"
-        
+        self.author_name  = "Encode Bot"
+        self.author_url   = "https://t.me/your_bot_username"
+
+    # ── Telegraph ─────────────────────────────────────────────────────────────
+
     async def create_account(self):
-        """Create Telegraph account if not exists"""
         if not self.access_token:
             await self.telegraph.create_account(
-                short_name='encodebot',
+                short_name="encodebot",
                 author_name=self.author_name,
-                author_url=self.author_url
+                author_url=self.author_url,
             )
             self.access_token = self.telegraph.get_access_token()
-            
-    async def create_page(self, title, content):
-        """Create a Telegraph page with retry on flood"""
+
+    async def create_page(self, title: str, content: str) -> dict:
         try:
             return await self.telegraph.create_page(
                 title=title,
                 author_name=self.author_name,
                 author_url=self.author_url,
-                html_content=content
+                html_content=content,
             )
         except RetryAfterError as e:
             await asyncio.sleep(e.retry_after)
             return await self.create_page(title, content)
-    
-    async def download_file(self, url, save_path):
-        """Download file from URL"""
-        headers = {
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        async with ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                async with aiofiles.open(save_path, "wb") as f:
-                    async for chunk in response.content.iter_chunked(10 * 1024 * 1024):  # 10MB chunks
-                        await f.write(chunk)
-                        break  # Only download first 10MB for mediainfo
-    
-    async def download_media(self, client, message, media, save_path):
-        """Download media from Telegram"""
-        if media.file_size <= 50 * 1024 * 1024:  # 50MB
-            await message.download(os.path.join(os.getcwd(), save_path))
-        else:
-            async for chunk in client.stream_media(media, limit=5):
-                async with aiofiles.open(save_path, "ab") as f:
-                    await f.write(chunk)
-    
-    async def run_mediainfo(self, file_path):
-        """Run mediainfo command and return output"""
-        process = await asyncio.create_subprocess_exec(
-            'mediainfo', file_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        return stdout.decode('utf-8', errors='ignore')
-    
-    def parse_mediainfo(self, output, filename):
-        """Parse mediainfo output to HTML for Telegraph"""
-        section_dict = {
-            'General': '📋', 
-            'Video': '🎬', 
-            'Audio': '🔊', 
-            'Text': '📝', 
-            'Menu': '📑'
-        }
-        
-        html = f"<h3>📁 {filename}</h3><br>"
-        trigger = False
-        
-        for line in output.split('\n'):
-            for section, emoji in section_dict.items():
-                if line.startswith(section):
-                    trigger = True
-                    if not line.startswith('General'):
-                        html += '</pre><br>'
-                    html += f"<h4>{emoji} {line.replace('Text', 'Subtitle')}</h4>"
+
+    # ── Partial download (Telegram files only) ────────────────────────────────
+
+    async def download_partial(self, client, media, save_path: str,
+                               max_bytes: int = 3 * 1024 * 1024):
+        """
+        Download only the first `max_bytes` of a Telegram media file.
+        3 MB covers the container header of virtually any format.
+        """
+        file_size = getattr(media, "file_size", None)
+
+        if file_size and file_size <= max_bytes:
+            await client.download_media(media, file_name=save_path)
+            return
+
+        received = 0
+        async with aiofiles.open(save_path, "wb") as f:
+            async for chunk in client.stream_media(media):
+                await f.write(chunk)
+                received += len(chunk)
+                if received >= max_bytes:
                     break
-            
-            if trigger:
-                html += '<br><pre>'
-                trigger = False
+
+    # ── pymediainfo parse (sync → run in executor) ───────────────────────────
+
+    def _parse_sync(self, target: str) -> MediaInfo:
+        return MediaInfo.parse(target)
+
+    async def run_mediainfo(self, target: str) -> MediaInfo:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._parse_sync, target)
+
+    # ── Build Telegraph HTML ──────────────────────────────────────────────────
+
+    TRACK_META = {
+        "General": ("🗒",  "General"),
+        "Video":   ("🎞",  "Video"),
+        "Audio":   ("🔊",  "Audio"),
+        "Text":    ("🔠",  "Subtitle"),
+        "Menu":    ("📑",  "Menu"),
+        "Image":   ("🖼",  "Image"),
+        "Other":   ("📄",  "Other"),
+    }
+
+    # Attributes to skip (internal pymediainfo bookkeeping fields)
+    SKIP_FIELDS = {
+        "track_type", "count", "stream_identifier", "streamorder",
+        "other_format", "other_duration", "other_bit_rate",
+        "other_width", "other_height", "other_frame_rate",
+        "other_channel_s", "other_sampling_rate",
+    }
+
+    def _track_to_pre(self, track) -> str:
+        lines = []
+        for attr, value in track.__dict__.items():
+            if attr.startswith("_"):
+                continue
+            if attr in self.SKIP_FIELDS:
+                continue
+            if value is None or value == "":
+                continue
+
+            val_str = str(value)
+
+            # snake_case → human label (mirrors real mediainfo CLI output)
+            label = (
+                attr
+                .replace("_", " ")
+                .title()
+                .replace("Id",  "ID")
+                .replace("Fps", "FPS")
+                .replace("Kb/S", "kb/s")
+                .replace("Mb/S", "Mb/s")
+                .replace("Yuv", "YUV")
+                .replace("Uhd", "UHD")
+                .replace("Hdr", "HDR")
+                .replace("Url", "URL")
+                .replace("Hevc", "HEVC")
+                .replace("Avc",  "AVC")
+                .replace("Aac",  "AAC")
+                .replace("Mkv",  "MKV")
+            )
+
+            # Align to 40 chars like real mediainfo
+            padded = f"{label:<40}: {val_str}"
+            safe   = (
+                padded
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            lines.append(safe)
+
+        return "\n".join(lines)
+
+    def build_html(self, media_info: MediaInfo, filename: str) -> str:
+        html = f"<h4>📌 {filename}</h4>"
+        type_counters: dict[str, int] = {}
+
+        for track in media_info.tracks:
+            ttype              = track.track_type
+            emoji, base_label  = self.TRACK_META.get(ttype, ("📄", ttype))
+
+            if ttype == "General":
+                label = base_label
             else:
-                html += line + '\n'
-        
-        html += '</pre><br>'
+                count = type_counters.get(ttype, 0) + 1
+                type_counters[ttype] = count
+                label = base_label if count == 1 else f"{base_label} #{count}"
+
+            body = self._track_to_pre(track)
+            if not body.strip():
+                continue
+
+            html += f"<h4>{emoji} {label}</h4><pre>{body}</pre><br>"
+
         return html
-    
-    async def generate_mediainfo(self, client, message, file_path, filename):
-        """Generate mediainfo and create Telegraph page"""
+
+    # ── Public entry point ────────────────────────────────────────────────────
+
+    async def generate_mediainfo(self, target: str, filename: str):
+        """
+        `target` — local file path OR a direct URL.
+        Returns (telegraph_url, error_string).
+        """
         try:
-            # Run mediainfo
-            output = await self.run_mediainfo(file_path)
-            
-            if not output:
-                return None, "Failed to get media information"
-            
-            # Parse to HTML
-            html_content = self.parse_mediainfo(output, filename)
-            
-            # Create Telegraph page
+            media_info = await self.run_mediainfo(target)
+
+            if not media_info or not media_info.tracks:
+                return None, "No media tracks found"
+
+            html_content = self.build_html(media_info, filename)
+
             await self.create_account()
             page = await self.create_page(
-                title=f"MediaInfo - {filename[:50]}",
-                content=html_content
+                title=f"MediaInfo – {filename[:50]}",
+                content=html_content,
             )
-            
+
             return f"https://graph.org/{page['path']}", None
-            
+
         except Exception as e:
             return None, str(e)
-        finally:
-            # Cleanup downloaded file
-            if os.path.exists(file_path):
-                os.remove(file_path)
