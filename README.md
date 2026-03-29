@@ -2,272 +2,136 @@
 
 # EncodeBot
 
-> A powerful Telegram video encoding assistant built with Pyrogram.
+> A Telegram-based video encoding assistant built with Pyrogram and FFmpeg.
 
-EncodeBot lets users encode, rename, watermark, and organize video files directly from Telegram. It supports single-file operations, full album batch processing, multiple resolutions, metadata injection, queue tracking, and interactive help pages.
-
----
-
-## Features
-
-* Multi-resolution encoding (up to 4 outputs at once)
-* HDRip passthrough mode with no re-encoding
-* Batch encode Telegram albums
-* Batch rename Telegram albums
-* Per-resolution quality profiles
-* Custom watermark support with timing control
-* Metadata injection (title, author, encoder)
-* Upload as media or document
-* Queue system with live progress tracking
-* Task cancellation support
-* Interactive `/start` and paginated `/help` interface
+EncodeBot is designed for handling video workflows directly inside Telegram. The project focuses heavily on FFmpeg-based processing, including multi-resolution encoding, watermark rendering, metadata injection, and automated batch handling.
 
 ---
 
-## Supported Commands
+## Commands
 
-| Command   | Description                       |
-| --------- | --------------------------------- |
-| `/start`  | Show the welcome screen           |
-| `/help`   | Open the interactive help guide   |
-| `/es`     | Open encoding settings            |
-| `/encode` | Encode a single video             |
-| `/be`     | Batch encode an album             |
-| `/rename` | Rename a single file              |
-| `/br`     | Batch rename an album             |
-| `/mi`     | Generate a MediaInfo report       |
-| `/status` | View current queue and task stats |
-| `/cancel` | Cancel an active or queued task   |
+| Command   | Purpose                                                                                                                                                                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/es`     | Opens the settings panel where users configure output resolutions, CRF values, codec, audio bitrate, watermark, metadata, filename template, upload mode, and thumbnail. All settings are saved per user and reused automatically for future tasks. |
+| `/encode` | Encodes a single replied video into one or more selected resolutions. The command applies the saved FFmpeg profile for each resolution, including codec, CRF, audio bitrate, metadata, and watermark settings.                                      |
+| `/be`     | Batch-encodes an entire Telegram album. Each file is processed using the same FFmpeg profile and naming template, making it useful for encoding complete series episodes or multi-part uploads.                                                     |
+| `/rename` | Renames a single video without changing the selected resolution. It can still inject metadata and apply watermarking if enabled, allowing files to be reorganized without a full encode.                                                            |
+| `/br`     | Batch-renames a Telegram album using the saved filename template. Useful when preparing complete seasons or collections with consistent naming and optional watermarking.                                                                           |
+| `/mi`     | Generates a MediaInfo report from a replied file or URL. The command extracts technical details such as codec, bitrate, duration, audio tracks, subtitle tracks, and container information.                                                         |
+| `/status` | Displays the active encoding queue, current FFmpeg stage, system resource usage, and queued tasks. It helps track which file is downloading, encoding, or uploading in real time.                                                                   |
+| `/cancel` | Stops a running or queued task instantly. The bot terminates the FFmpeg process, removes temporary files, and continues with the next task in the queue.                                                                                            |
 
 ---
 
-# Encoding Modes
+## FFmpeg Processing
 
-## Single File Encoding
+EncodeBot is centered around FFmpeg. Every encoding task builds a dynamic FFmpeg command based on the user's selected settings.
 
-Reply to a video and run:
+For each selected resolution, FFmpeg:
 
-```bash
-/encode "Movie Name {{quality}}.mkv"
-```
+* Rescales the video while preserving aspect ratio
+* Applies the selected codec (`libx264` or `libx265`)
+* Uses the configured CRF and preset values
+* Re-encodes or copies the audio stream
+* Injects metadata and optional thumbnail
+* Burns a watermark into the video when enabled
 
-Example:
-
-```bash
-/encode "The Dark Knight {{quality}}.mkv"
-```
-
-If 1080p and 720p are selected, the bot generates:
-
-```text
-The Dark Knight 1080p.mkv
-The Dark Knight 720p.mkv
-```
-
-### Rules
-
-* Must be used as a reply to a video or video document
-* `{{quality}}` is required in the output filename
-* Output filename must end with a valid video extension
-* Use quotes if the filename contains spaces
-
-Supported extensions:
-
-```text
-.mp4 .mkv .webm .mov .avi .mpeg .flv .3gp
-```
+The project mainly focuses on understanding how FFmpeg filters and encoder settings affect quality, size, and speed.
 
 ---
 
-## Batch Encoding
+## Encoding Concepts
 
-Reply to the first item in a Telegram album:
+### CRF
 
-```bash
-/be -e 1 -s 1 -t Attack on Titan
-```
+CRF (Constant Rate Factor) controls video quality.
 
-Example output:
+* Lower CRF = higher quality and larger file size
+* Higher CRF = lower quality and smaller file size
 
-```text
-Attack on Titan S01E01 [1080p].mkv
-Attack on Titan S01E02 [1080p].mkv
-Attack on Titan S01E03 [1080p].mkv
-```
+Typical values:
 
-### Available Arguments
-
-| Argument | Description                    |
-| -------- | ------------------------------ |
-| `-e`     | Starting episode number        |
-| `-t`     | Title of the series or movie   |
-| `-s`     | Season number                  |
-| `-a`     | Audio label such as SUB or DUB |
+| CRF   | Result                      |
+| ----- | --------------------------- |
+| 18–20 | Visually lossless           |
+| 21–24 | High quality                |
+| 25–30 | Smaller size, lower quality |
 
 ---
 
-# Filename Template System
+### Codec
 
-The batch commands rely on a saved filename template.
+EncodeBot supports:
 
-Example template:
+* `libx264` — Faster encoding and better compatibility
+* `libx265` — Better compression and smaller files, but slower
 
-```text
-{{title}} S{{season}}E{{episode}} [{{quality}}].mkv
-```
-
-Available placeholders:
-
-```text
-{{title}}
-{{season}}
-{{episode}}
-{{quality}}
-{{audio}}
-```
-
-### Notes
-
-* `{{title}}`, `{{episode}}`, and `{{quality}}` are always required
-* `{{audio}}` can be made optional using brackets:
-
-```text
-[{{audio}}]
-```
-
-If no audio label is provided, the entire bracketed section is removed automatically.
+`libx264` is generally used when compatibility matters, while `libx265` is used when smaller output size is preferred.
 
 ---
 
-# Resolution Profiles
+### Audio Encoding
 
-Each resolution has independent settings.
+Audio bitrate is configured separately for every resolution.
 
-| Resolution | Default Configuration               |
-| ---------- | ----------------------------------- |
-| HDRip      | Copy only (no encoding)             |
-| 1080p      | CRF 23, medium, libx264, 192k audio |
-| 720p       | CRF 26, medium, libx264, 128k audio |
-| 480p       | CRF 28, fast, libx264, 96k audio    |
+Common values:
 
-### Adjustable Options
+* `96k` for 480p
+* `128k` for 720p
+* `192k` for 1080p
 
-* CRF
-* Preset
-* Codec (`libx264` or `libx265`)
-* Audio bitrate
+The audio stream can either be copied directly or re-encoded depending on the selected profile.
 
 ---
 
-# Watermark System
+### Watermark Rendering
 
-EncodeBot can burn text directly into the video.
+The watermark system is implemented using FFmpeg's `drawtext` filter.
 
-Configurable options:
+Users can provide:
 
-* Text
-* Font (TTF / OTF)
-* Font size
-* Color
-* Position
-* Padding
+* Text content
+* TTF / OTF font file
+* Font size and color
+* Screen position and padding
+* Start and end timing
 
-### Supported Timing Modes
-
-| Mode     | Description                            |
-| -------- | -------------------------------------- |
-| `full`   | Entire video duration                  |
-| `range`  | Between start and end seconds          |
-| `random` | Random start time for a fixed duration |
-
-### Supported Positions
-
-```text
-top-left     top-center     top-right
-mid-left     mid-center     mid-right
-bottom-left  bottom-center  bottom-right
-```
+The watermark is rendered directly onto the video frames during encoding. The project mainly explores how FFmpeg handles custom fonts, positioning, and timed overlays.
 
 ---
 
-# Metadata Injection
+## Default Encoding Profiles
 
-Each encoded or renamed file can include:
+| Resolution | Codec   | CRF | Audio |
+| ---------- | ------- | --- | ----- |
+| HDRip      | Copy    | —   | Copy  |
+| 1080p      | libx264 | 23  | 192k  |
+| 720p       | libx264 | 26  | 128k  |
+| 480p       | libx264 | 28  | 96k   |
 
-* Title
-* Author
-* Encoder tag
-
-Metadata is automatically embedded into every output file.
-
----
-
-# Queue System
-
-EncodeBot processes one task at a time.
-
-The `/status` command shows:
-
-* Current active task
-* Queue position
-* Download / Encode / Upload stage
-* CPU usage
-* RAM usage
-* Free disk space
-* Bot uptime
-
-Queued tasks also include a ready-to-use cancellation command.
-
-Example:
-
-```bash
-/cancel a3f9c1b2
-```
+HDRip mode does not re-encode the source. FFmpeg simply copies the existing video and audio streams while still allowing metadata injection.
 
 ---
 
-# MediaInfo Support
-
-Generate technical reports using:
-
-```bash
-/mi
-```
-
-Supported input methods:
-
-1. Reply to a media file
-2. Provide a direct media URL
-3. Reply to a message containing a URL
-
-The report includes:
-
-* General container information
-* Video details
-* Audio track details
-* Subtitle information
-* Chapters / menu data
-
----
-
-# Installation
+## Installation
 
 ```bash
 git clone https://github.com/KunalDahal/Toji-Encode.git
-cd encodebot
+cd Toji-Encode
 pip install -r requirements.txt
 ```
 
-Create a configuration file and provide:
+Create a `.env` file:
 
 ```env
 API_ID=
 API_HASH=
 BOT_TOKEN=
-OWNER_ID=
+ALLOWED_GROUP_IDS=
+ADMIN_IDS=
 ```
 
-Then run:
+Run the bot:
 
 ```bash
 python main.py
@@ -275,68 +139,20 @@ python main.py
 
 ---
 
-# Project Structure
-
-```text
-src/
-├── handlers/
-│   ├── start.py
-│   ├── encode.py
-│   ├── batch_encode.py
-│   ├── rename.py
-│   ├── batch_rename.py
-│   ├── status.py
-│   └── mediainfo.py
-├── utils/
-├── config/
-└── main.py
-```
-
----
-
-# Screenshots / Preview
-
-You may want to include:
-
-* `/start` welcome screen
-* Help page navigation
-* Encoding progress view
-* Queue status page
-* Settings menu
-
----
-
-# Requirements
+## Requirements
 
 * Python 3.10+
-* Pyrogram
 * FFmpeg
+* Pyrogram
 * TgCrypto
-
-Install FFmpeg before running the bot.
-
-Ubuntu:
-
-```bash
-sudo apt update
-sudo apt install ffmpeg
-```
+* MTProto / Telegram Bot API access
 
 ---
 
-# License
+## License
 
-This project is licensed under the MIT License.
-
-```text
 MIT License
-```
 
----
+## Credits
 
-# Credits
-
-* Built with Pyrogram
-* Powered by FFmpeg
-* Designed for Telegram media workflows
-* By KunalDahal
+Built with Pyrogram and FFmpeg by **KunalDahal**
