@@ -4,19 +4,39 @@ import shutil
 from datetime import datetime
 
 
+# ── Stage progress helpers ────────────────────────────────────────────────────
+
+def _encode_progress_base(job_index: int, total_jobs: int) -> int:
+    per_job = 80 // total_jobs
+    return 20 + (job_index - 1) * per_job
+
+
+def _upload_progress_base(job_index: int, total_jobs: int) -> int:
+    per_job = 80 // total_jobs
+    return 20 + (job_index - 1) * per_job + (per_job // 2)
+
+
+# ── Worker ────────────────────────────────────────────────────────────────────
+
 class Worker:
+
     def __init__(self, task_queue, user_settings_getter, ffmpeg, client, config):
-        self.task_queue          = task_queue
-        self.user_settings_getter = user_settings_getter
-        self.ffmpeg              = ffmpeg
-        self.client              = client
-        self.config              = config
-        self.temp_base      = config.paths.tmp
-        self.thumbnails_dir = config.paths.thumbnails
-        self.running        = False
-        self.current_task   = None
-        self.current_task_id = None
-        self.processing_task = None
+        self.task_queue            = task_queue
+        self.user_settings_getter  = user_settings_getter
+        self.ffmpeg                = ffmpeg
+        self.client                = client
+        self.config                = config
+        self.temp_base             = config.paths.tmp
+        self.thumbnails_dir        = config.paths.thumbnails
+        self.running               = False
+
+        # ── One semaphore per pipeline stage ──────────────────────────────────
+        self._download_sem = asyncio.Semaphore(1)
+        self._encode_sem   = asyncio.Semaphore(1)
+        self._upload_sem   = asyncio.Semaphore(1)
+
+        # task_id → asyncio.Task  (for cancellation and lifecycle tracking)
+        self._active_tasks: dict[str, asyncio.Task] = {}
 
         os.makedirs(self.temp_base,      exist_ok=True)
         os.makedirs(self.thumbnails_dir, exist_ok=True)
@@ -27,50 +47,45 @@ class Worker:
         self.running = True
         while self.running:
             try:
-                if not self.current_task_id and not self.task_queue.is_processing():
-                    next_task = self.task_queue.get_next_task()
-                    if next_task:
-                        self.current_task_id = next_task["task_id"]
-                        self.current_task    = next_task
-                        self.task_queue.set_processing(True)
-                        self.task_queue.update_status(self.current_task_id, "queued", 0)
+                task = self.task_queue.get_next_task()
+                if task:
+                    task_id = task["task_id"]
+                    self.task_queue.update_status(task_id, "starting", 0)
 
-                        self.processing_task = asyncio.create_task(
-                            self.process_task(self.current_task)
-                        )
+                    coro = self.process_task(task)
+                    t    = asyncio.create_task(coro, name=f"task-{task_id}")
+                    self._active_tasks[task_id] = t
+
+                    t.add_done_callback(
+                        lambda _fut, tid=task_id: self._active_tasks.pop(tid, None)
+                    )
 
                 await asyncio.sleep(1)
 
             except Exception as e:
-                print(f"Worker loop error: {e}")
+                print(f"[Worker] Loop error: {e}")
                 await asyncio.sleep(5)
 
     async def stop(self):
         self.running = False
-        if self.processing_task:
-            self.processing_task.cancel()
-            try:
-                await self.processing_task
-            except Exception:
-                pass
+        tasks = list(self._active_tasks.values())
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    # ── Cancellation ─────────────────────────────────────────────────────────
 
     async def cancel_task(self, task_id: str):
         try:
-            if self.current_task_id == task_id and self.processing_task:
-                self.processing_task.cancel()
+            t = self._active_tasks.get(task_id)
+            if t and not t.done():
+                t.cancel()
                 try:
-                    await self.processing_task
-                except asyncio.CancelledError:
-                    print(f"Task {task_id} cancelled")
-                except Exception as e:
-                    print(f"Error during cancellation: {e}")
-
-                self.current_task_id = None
-                self.current_task    = None
-                self.task_queue.set_processing(False)
-                self.task_queue.update_status(task_id, "cancelled", 0)
-
-            if task_id in self.task_queue.queue:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
+            else:
                 task = self.task_queue.get_task(task_id)
                 if task:
                     try:
@@ -80,29 +95,28 @@ class Worker:
                         )
                     except Exception:
                         pass
-                self.task_queue.queue.remove(task_id)
-
-            if task_id in self.task_queue.tasks:
-                del self.task_queue.tasks[task_id]
-
-            task_folder = os.path.join(self.temp_base, task_id)
-            if os.path.exists(task_folder):
-                try:
-                    shutil.rmtree(task_folder)
-                except Exception as e:
-                    print(f"Cleanup failed for {task_id}: {e}")
+                self.task_queue.remove_task(task_id)
+                task_folder = os.path.join(self.temp_base, task_id)
+                if os.path.exists(task_folder):
+                    shutil.rmtree(task_folder, ignore_errors=True)
 
         except Exception as e:
-            print(f"cancel_task error: {e}")
+            print(f"[Worker] cancel_task error for {task_id}: {e}")
 
-    # ── Stage tracker helper ──────────────────────────────────────────────────
+    # ── Stage helper ──────────────────────────────────────────────────────────
 
     def _set_stage(self, task: dict, stage: str, progress: int = None):
         task["current_stage"] = stage
         self.task_queue.update_status(
-            task["task_id"], stage,
-            progress if progress is not None else task.get("progress", 0)
+            task["task_id"],
+            stage,
+            progress if progress is not None else task.get("progress", 0),
         )
+
+    def _clear_progress_details(self, task: dict):
+        """Clear stale per-stage progress so status.py doesn't show old data."""
+        task.pop("progress_details", None)
+        task.pop("upload_progress",  None)
 
     # ── Main processor ────────────────────────────────────────────────────────
 
@@ -110,25 +124,31 @@ class Worker:
         task_id     = task["task_id"]
         task_folder = os.path.join(self.temp_base, task_id)
 
-        downloaded_path  = None
-        encoded_paths: list[str] = []
+        downloaded_path: str       = None
+        encoded_paths:   list[str] = []
 
         try:
             task["started_at"] = datetime.utcnow().isoformat()
 
-            # ── 1. Download ───────────────────────────────────────────────────
-            self._set_stage(task, "downloading", 5)
+            # ═══════════════════════════════════════════════════════════════════
+            # STAGE 1 — Download  (one at a time across all tasks)
+            # ═══════════════════════════════════════════════════════════════════
+            async with self._download_sem:
+                self._clear_progress_details(task)
+                self._set_stage(task, "downloading", 0)
 
-            from src.services.downloader import Downloader
+                from src.services.downloader import Downloader
+                downloader      = Downloader(self.temp_base, self.task_queue, task_id)
+                downloaded_path = await downloader.download(
+                    client=self.client, task_data=task
+                )
 
-            downloader = Downloader(self.temp_base, self.task_queue, task_id)
-            downloaded_path = await downloader.download(client=self.client, task_data=task)
+                if not downloaded_path or not os.path.exists(downloaded_path):
+                    raise Exception("Download failed: file not found after download")
 
-            if not downloaded_path or not os.path.exists(downloaded_path):
-                raise Exception("Download failed: file not found after download")
+                task["media_info"] = await self.ffmpeg.probe_media(downloaded_path)
 
-            task["media_info"] = await self.ffmpeg.probe_media(downloaded_path)
-
+            # ── Build the list of encode/upload jobs ──────────────────────────
             jobs = task.get("jobs") or [
                 {
                     "resolution":      task.get("resolution", "1080p"),
@@ -156,7 +176,6 @@ class Worker:
 
             encoder = Encoder(self.ffmpeg)
 
-            # ── 3. Sequential: encode → upload per resolution ─────────────────
             for job_index, job in enumerate(jobs, start=1):
                 resolution      = job["resolution"]
                 output_filename = job["output_filename"]
@@ -166,9 +185,6 @@ class Worker:
                 task["resolution"]       = resolution
                 task["output_filename"]  = output_filename
                 task["current_job_mode"] = processing_mode
-
-                # ── 3a. Encode / copy ─────────────────────────────────────────
-                self._set_stage(task, "encoding", _encode_progress_base(job_index, total_jobs))
 
                 job_settings = {
                     "resolution":      resolution,
@@ -184,28 +200,47 @@ class Worker:
                     "watermark":       task.get("watermark"),
                 }
 
-                encoded_path = await encoder.encode(
-                    task_data=task,
-                    input_path=downloaded_path,
-                    settings=job_settings,
-                )
-                encoded_paths.append(encoded_path)
-
-                if not encoded_path or not os.path.exists(encoded_path):
-                    raise Exception(
-                        f"Encoding failed for {resolution}: output file not found"
+                # ═══════════════════════════════════════════════════════════════
+                # STAGE 2 — Encode  (one FFmpeg process at a time)
+                # ═══════════════════════════════════════════════════════════════
+                async with self._encode_sem:
+                    self._clear_progress_details(task)
+                    self._set_stage(
+                        task, "encoding",
+                        _encode_progress_base(job_index, total_jobs),
+                    )
+                    encoded_path = await encoder.encode(
+                        task_data=task,
+                        input_path=downloaded_path,
+                        settings=job_settings,
                     )
 
-                # ── 3b. Upload to user's DM ───────────────────────────────────
-                self._set_stage(task, "uploading", _upload_progress_base(job_index, total_jobs))
+                    if not encoded_path or not os.path.exists(encoded_path):
+                        raise Exception(
+                            f"Encoding failed for {resolution}: output file not found"
+                        )
+                    encoded_paths.append(encoded_path)
 
-                task["upload_file_path"] = encoded_path
-                task["thumbnail_path"]   = job.get("thumbnail_path", "")
-                task["send_type"]        = job.get("send_type", "media")
+                # ═══════════════════════════════════════════════════════════════
+                # STAGE 3 — Upload  (one upload at a time)
+                # ═══════════════════════════════════════════════════════════════
+                async with self._upload_sem:
+                    self._clear_progress_details(task)
+                    self._set_stage(
+                        task, "uploading",
+                        _upload_progress_base(job_index, total_jobs),
+                    )
+                    task["upload_file_path"] = encoded_path
+                    task["thumbnail_path"]   = job.get("thumbnail_path", "")
+                    task["send_type"]        = job.get("send_type", "media")
 
-                uploader = Uploader(self.client, task, self.task_queue)
-                await uploader.upload()
+                    uploader = Uploader(
+                        self.client, task, self.task_queue,
+                        tmp_dir=self.temp_base,
+                    )
+                    await uploader.upload()
 
+                # Clean up this job's encoded file right after upload.
                 task.pop("upload_file_path", None)
                 if os.path.exists(encoded_path):
                     try:
@@ -214,9 +249,8 @@ class Worker:
                         pass
                 encoded_paths = [p for p in encoded_paths if p != encoded_path]
 
-            # ── 4. Done ───────────────────────────────────────────────────────
+            # ── All jobs done ─────────────────────────────────────────────────
             self.task_queue.remove_task(task_id)
-
             await self.notify_user(
                 task["user_id"],
                 f"✅ Task `{task_id[:8]}` completed.",
@@ -224,13 +258,14 @@ class Worker:
 
         except asyncio.CancelledError:
             await self.notify_user(
-                task["user_id"], f"Task `{task_id[:8]}` was cancelled."
+                task["user_id"],
+                f"Task `{task_id[:8]}` was cancelled.",
             )
             self.task_queue.remove_task(task_id)
 
         except Exception as e:
             error_msg = str(e)
-            print(f"Task {task_id} failed: {error_msg}")
+            print(f"[Worker] Task {task_id} failed: {error_msg}")
             await self.notify_user(
                 task["user_id"],
                 f"❌ Task `{task_id[:8]}` failed.\nError: {error_msg[:200]}",
@@ -252,14 +287,7 @@ class Worker:
                     pass
 
             if os.path.exists(task_folder):
-                try:
-                    shutil.rmtree(task_folder)
-                except Exception as e:
-                    print(f"Cleanup error for {task_folder}: {e}")
-
-            self.current_task_id = None
-            self.current_task    = None
-            self.task_queue.set_processing(False)
+                shutil.rmtree(task_folder, ignore_errors=True)
 
     # ── Utilities ─────────────────────────────────────────────────────────────
 
@@ -267,16 +295,4 @@ class Worker:
         try:
             await self.client.send_message(user_id, message)
         except Exception as e:
-            print(f"Failed to notify user {user_id}: {e}")
-
-
-# ── Progress helpers ──────────────────────────────────────────────────────────
-
-def _encode_progress_base(job_index: int, total_jobs: int) -> int:
-    per_job = 80 // total_jobs
-    return 20 + (job_index - 1) * per_job
-
-
-def _upload_progress_base(job_index: int, total_jobs: int) -> int:
-    per_job = 80 // total_jobs
-    return 20 + (job_index - 1) * per_job + (per_job // 2)
+            print(f"[Worker] Failed to notify user {user_id}: {e}")

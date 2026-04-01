@@ -15,13 +15,17 @@ import time
 BOT_START_TIME = time.time()
 
 # chat_id → message_id of the currently open status message in that chat
-# Used to delete old status when a new /status is issued.
 _active_status: dict[int, int] = {}
 
 # chat_id → asyncio.Task running the auto-refresh loop for that chat
 _refresh_tasks: dict[int, asyncio.Task] = {}
 
 AUTO_REFRESH_INTERVAL = 15   # seconds
+
+# Statuses that count as "active" (mirrors task_queue.py)
+_ACTIVE_STATUSES = frozenset({
+    "starting", "queued", "downloading", "encoding", "uploading"
+})
 
 
 async def _check_access(client, message: Message, admin_ids: list) -> bool:
@@ -56,10 +60,8 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
 
         chat_id = message.chat.id
 
-        # Cancel any running auto-refresh loop for this chat
         _cancel_refresh(chat_id)
 
-        # Delete the previous status message in this chat (if any)
         old_msg_id = _active_status.get(chat_id)
         if old_msg_id:
             try:
@@ -68,11 +70,9 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
                 pass
             _active_status.pop(chat_id, None)
 
-        # Send the new status message and record it
         sent = await _send_status(client, message, task_queue, page=0)
         if sent:
             _active_status[chat_id] = sent.id
-            # Start the auto-refresh background loop
             task = asyncio.create_task(
                 _auto_refresh_loop(client, chat_id, sent, task_queue, admin_ids)
             )
@@ -91,7 +91,6 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             page = max(0, page - 1)
         elif action == "next":
             page = page + 1
-        # "refresh" keeps current page
 
         await show_status(client, callback_query.message, task_queue, page, is_callback=True)
         await callback_query.answer()
@@ -126,23 +125,20 @@ async def _auto_refresh_loop(
     task_queue,
     admin_ids: list,
 ):
-    """Silently refreshes the status message every AUTO_REFRESH_INTERVAL seconds."""
     try:
         while True:
             await asyncio.sleep(AUTO_REFRESH_INTERVAL)
-            # If the message was replaced or closed, stop
             if _active_status.get(chat_id) != status_msg.id:
                 break
             try:
                 await show_status(client, status_msg, task_queue, page=0, is_callback=True)
             except Exception:
-                # Message may have been deleted externally; stop the loop
                 break
     except asyncio.CancelledError:
         pass
 
 
-# ── Status sender (new message, not edit) ────────────────────────────────────
+# ── Status sender ─────────────────────────────────────────────────────────────
 
 async def _send_status(
     client: Client,
@@ -150,7 +146,6 @@ async def _send_status(
     task_queue,
     page: int = 0,
 ) -> Message | None:
-    """Send a brand-new status message and return it."""
     text, reply_markup = _build_status_content(task_queue, page)
     try:
         return await message.reply_text(
@@ -185,23 +180,15 @@ async def show_status(
 
 
 def _build_status_content(task_queue, page: int) -> tuple[str, InlineKeyboardMarkup | None]:
-    processing_task = None
-    queued_tasks = []
-
-    current_task = task_queue.get_current_task()
-    if current_task and current_task["status"] in ("downloading", "encoding", "uploading"):
-        processing_task = current_task
-
+    # ── Collect ALL active tasks in queue order ───────────────────────────────
+    # Pipeline mode can have multiple tasks simultaneously active
+    # (one downloading, one encoding, one uploading). We must not rely on
+    # get_current_task() which only tracks the most-recently-started task.
+    all_active = []
     for task_id in task_queue.queue:
         task = task_queue.get_task(task_id)
-        if not task:
-            continue
-        if processing_task and task["task_id"] == processing_task["task_id"]:
-            continue
-        if task["status"] in ("queued", "downloading", "encoding", "uploading"):
-            queued_tasks.append(task)
-
-    all_active = ([processing_task] if processing_task else []) + queued_tasks
+        if task and task.get("status") in _ACTIVE_STATUSES:
+            all_active.append(task)
 
     items_per_page = 5
     total_pages    = ceil(len(all_active) / items_per_page) if all_active else 1
@@ -227,51 +214,79 @@ def _build_status_content(task_queue, page: int) -> tuple[str, InlineKeyboardMar
         status_text += f"<b>Task {i}</b>\n"
 
         if task_status == "downloading":
-            prog          = _get_download_progress(task)
+            prog           = _get_download_progress(task)
             total_size_str = (
                 humanize.naturalsize(prog["total_size"], binary=True)
                 if prog["total_size"] else "unknown size"
             )
+            pct       = prog.get("percentage", 0)
+            speed_str = _fmt_speed(prog.get("speed", 0))
+            eta_str   = _fmt_eta(prog.get("eta", 0))
+
             status_text += f"┃ File: <code>{filename}</code>\n"
             status_text += f"┃ Size: {total_size_str}\n"
-            status_text += f"┠ Status: <code>Downloading</code>\n"
+            status_text += f"┠ ⬇ Downloading: <b>{pct:.1f}%</b>"
+            if speed_str:
+                status_text += f" | {speed_str}"
+            if eta_str and pct < 99:
+                status_text += f" | ETA {eta_str}"
+            status_text += "\n"
             status_text += f"┠ Elapsed: {elapsed}\n"
 
         elif task_status == "encoding":
             mode       = task.get("current_job_mode", "encode")
-            mode_label = "copy+meta" if mode == "metadata_only" else "encoding"
+            mode_label = "copy+meta" if mode == "metadata_only" else (
+                "rename" if mode == "rename" else "encoding"
+            )
             status_text += f"┃ File: <code>{filename}</code>\n"
-            status_text += f"┃ {job_label}  <i>({mode_label})</i>\n"
-            status_text += f"┠ Status: <code>Encoding</code>  <i>CPU</i>\n"
+            if job_label:
+                status_text += f"┃ {job_label}  <i>({mode_label})</i>\n"
+            else:
+                status_text += f"┃ Mode: <i>{mode_label}</i>\n"
+            status_text += f"┠ ⚙ Encoding…  <i>(CPU)</i>\n"
             status_text += f"┠ Elapsed: {elapsed}\n"
 
         elif task_status == "uploading":
-            prog          = _get_upload_progress(task)
+            prog           = _get_upload_progress(task)
             total_size_str = (
                 humanize.naturalsize(prog["total_size"], binary=True)
                 if prog["total_size"] else "unknown size"
             )
+            pct       = prog.get("percentage", 0)
+            speed_str = _fmt_speed(prog.get("speed", 0))
+            eta_str   = _fmt_eta(prog.get("eta", 0))
+
             status_text += f"┃ File: <code>{filename}</code>\n"
-            status_text += f"┃ {job_label}\n"
+            if job_label:
+                status_text += f"┃ {job_label}\n"
             status_text += f"┃ Size: {total_size_str}\n"
-            status_text += f"┠ Status: <code>Uploading</code>\n"
+            status_text += f"┠ ⬆ Uploading: <b>{pct:.1f}%</b>"
+            if speed_str:
+                status_text += f" | {speed_str}"
+            if eta_str and pct < 99:
+                status_text += f" | ETA {eta_str}"
+            status_text += "\n"
             status_text += f"┠ Elapsed: {elapsed}\n"
 
         else:
-            file_size  = task.get("file_size", 0)
-            size_str   = humanize.naturalsize(file_size, binary=True) if file_size else "unknown size"
-            total_jobs = task.get("total_jobs") or len(task.get("jobs", []))
+            # queued / starting
+            file_size   = task.get("file_size", 0)
+            size_str    = humanize.naturalsize(file_size, binary=True) if file_size else "unknown size"
+            total_jobs  = task.get("total_jobs") or len(task.get("jobs", []))
             resolutions = " → ".join(task.get("resolutions", [task.get("resolution", "?")]))
             status_text += f"┃ File: <code>{filename}</code>\n"
             status_text += f"┃ Size: {size_str}\n"
             status_text += f"┃ Pipeline: <code>{resolutions}</code>  ({total_jobs} job{'s' if total_jobs != 1 else ''})\n"
-            status_text += f"┠ Status: <code>Queued</code>\n"
+            status_text += f"┠ ⏳ Queued\n"
 
-        status_text += f"┠ User: {user_info}  ID : <code>{user_id}</code>\n"
+        status_text += f"┠ User: {user_info}  ID: <code>{user_id}</code>\n"
         status_text += f"┖ <code>/cancel {task['task_id'][:8]}</code>\n"
 
         if i < start_idx + len(page_tasks):
             status_text += "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁\n"
+
+    if not all_active:
+        status_text = "✅ No tasks in queue.\n\n"
 
     cpu_pct    = psutil.cpu_percent(interval=0.1)
     mem        = psutil.virtual_memory()
@@ -305,13 +320,75 @@ def _build_status_content(task_queue, page: int) -> tuple[str, InlineKeyboardMar
     return status_text, reply_markup
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Progress helpers ──────────────────────────────────────────────────────────
+
+def _get_download_progress(task: dict) -> dict:
+    base = {
+        "total_size": task.get("file_size", 0),
+        "downloaded": 0,
+        "percentage": float(task.get("progress", 0)),
+        "speed":      0,
+        "eta":        0,
+    }
+    details = task.get("progress_details", {})
+    if details and task.get("status") == "downloading":
+        base.update({
+            "percentage": details.get("percentage", base["percentage"]),
+            "downloaded": details.get("downloaded", base["downloaded"]),
+            "total_size": details.get("total_size") or base["total_size"],
+            "speed":      details.get("speed", 0),
+            "eta":        details.get("eta", 0),
+        })
+    return base
+
+
+def _get_upload_progress(task: dict) -> dict:
+    base = {
+        "total_size": task.get("file_size", 0),
+        "uploaded":   0,
+        "percentage": float(task.get("progress", 0)),
+        "speed":      0,
+        "eta":        0,
+    }
+    up = task.get("upload_progress", {})
+    if up and up.get("total_size"):
+        base.update({
+            "total_size": up["total_size"],
+            "uploaded":   up.get("uploaded", base["uploaded"]),
+            "percentage": up.get("percentage", base["percentage"]),
+            "speed":      up.get("speed", 0),
+            "eta":        up.get("eta", 0),
+        })
+    return base
+
+
+# ── Format helpers ────────────────────────────────────────────────────────────
+
+def _fmt_speed(bytes_per_sec: float) -> str:
+    if not bytes_per_sec or bytes_per_sec < 100:
+        return ""
+    return f"{humanize.naturalsize(bytes_per_sec, binary=True)}/s"
+
+
+def _fmt_eta(seconds: int) -> str:
+    if not seconds or seconds <= 0:
+        return ""
+    if seconds >= 3600:
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        return f"{h}h {m}m"
+    if seconds >= 60:
+        m = seconds // 60
+        s = seconds % 60
+        return f"{m}m {s}s"
+    return f"{seconds}s"
+
 
 def _build_job_label(task: dict) -> str:
-    resolution = task.get("resolution", "")
+    resolution  = task.get("resolution", "")
     current_job = task.get("current_job", 0)
     total_jobs  = task.get("total_jobs") or len(task.get("jobs", []))
-    if not resolution:
+    if not resolution or resolution == "rename":
         return ""
     if total_jobs and total_jobs > 1:
         return f"⚙ <b>{resolution}</b>  <i>(Job {current_job}/{total_jobs})</i>"
@@ -323,13 +400,16 @@ def _format_elapsed(started_at: str) -> str:
         return "—"
     try:
         started = datetime.fromisoformat(started_at)
-        secs    = (datetime.utcnow() - started).seconds
+        secs    = int((datetime.utcnow() - started).total_seconds())
+        if secs < 0:
+            secs = 0
         hours   = secs // 3600
         minutes = (secs % 3600) // 60
+        secs_r  = secs % 60
         if hours > 0:
             return f"{hours}h {minutes}m"
         if minutes > 0:
-            return f"{minutes}m"
+            return f"{minutes}m {secs_r}s"
         return f"{secs}s"
     except Exception:
         return "—"
@@ -349,42 +429,3 @@ def _format_uptime(secs: int) -> str:
     if not parts:
         parts.append(f"{secs}s")
     return " ".join(parts)
-
-
-def _get_download_progress(task: dict) -> dict:
-    base    = {"total_size": task.get("file_size", 0), "downloaded": 0,
-               "percentage": task.get("progress", 0), "speed": 0, "eta": 0}
-    details = task.get("progress_details", {})
-    if details and task.get("status") == "downloading":
-        base.update({
-            "percentage": details.get("percentage", base["percentage"]),
-            "downloaded": details.get("downloaded", base["downloaded"]),
-            "total_size": details.get("total_size", base["total_size"]),
-            "speed":      details.get("speed", base["speed"]),
-            "eta":        details.get("eta", base["eta"]),
-        })
-    return base
-
-
-def _get_upload_progress(task: dict) -> dict:
-    base = {"total_size": task.get("file_size", 0), "uploaded": 0,
-            "percentage": task.get("progress", 0), "speed": 0, "eta": 0}
-    up   = task.get("upload_progress", {})
-    if up and up.get("total_size"):
-        base.update({
-            "total_size": up["total_size"],
-            "uploaded":   up.get("uploaded", base["uploaded"]),
-            "percentage": up.get("percentage", base["percentage"]),
-            "speed":      up.get("speed", base["speed"]),
-            "eta":        up.get("eta", base["eta"]),
-        })
-    elif task.get("progress_details") and task.get("status") == "uploading":
-        details = task["progress_details"]
-        base.update({
-            "percentage": details.get("percentage", base["percentage"]),
-            "uploaded":   details.get("uploaded", base["uploaded"]),
-            "total_size": details.get("total_size", base["total_size"]),
-            "speed":      details.get("speed", base["speed"]),
-            "eta":        details.get("eta", base["eta"]),
-        })
-    return base
