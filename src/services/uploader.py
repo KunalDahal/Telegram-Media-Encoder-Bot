@@ -9,7 +9,8 @@ class Uploader:
         self.task_data  = task_data
         self.task_queue = task_queue
         self._tmp_dir   = tmp_dir or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "tmp"
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "bin", "tmp",
         )
         self._last_time  = None
         self._last_bytes = 0
@@ -25,14 +26,14 @@ class Uploader:
         }
 
     async def upload(self):
-        task_id         = self.task_data["task_id"]
-        user_id         = self.task_data["user_id"]          # always DM
+        task_id          = self.task_data["task_id"]
+        user_id          = self.task_data["user_id"]          # always DM
         output_file_name = self.task_data["output_filename"]
-        send_type       = self.task_data.get("send_type", "media")
-        thumbnail_path  = self.task_data.get("thumbnail_path", "")
+        send_type        = self.task_data.get("send_type", "media")
+        thumbnail_path   = self.task_data.get("thumbnail_path", "")
 
-        task_folder         = os.path.join(self._tmp_dir, task_id)
-        explicit_file_path  = self.task_data.get("upload_file_path")
+        task_folder        = os.path.join(self._tmp_dir, task_id)
+        explicit_file_path = self.task_data.get("upload_file_path")
 
         if explicit_file_path and os.path.exists(explicit_file_path):
             final_file_path = explicit_file_path
@@ -60,6 +61,9 @@ class Uploader:
         self._last_time  = None
         self._last_bytes = 0
 
+        # ── Seed the task dict so status.py sees the file size immediately ────
+        self._write_task_progress(0, file_size, 0.0, 0, 0)
+
         try:
             caption = f"**{output_file_name}**\n"
             thumb   = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
@@ -86,6 +90,12 @@ class Uploader:
                 )
 
             self.upload_progress["status"] = "completed"
+
+            # ── Final 100% write-back ─────────────────────────────────────────
+            self._write_task_progress(file_size, file_size, 100.0, 0, 0)
+            if self.task_queue:
+                self.task_queue.update_status(self.task_data["task_id"], "uploading", 100)
+
             return result
 
         except Exception as e:
@@ -126,6 +136,31 @@ class Uploader:
                 "uploading",
                 round(percentage, 2),
             )
+
+        # ── Write full progress into the task dict ────────────────────────────
+        # status.py reads task["upload_progress"] to display speed / ETA.
+        self._write_task_progress(current, total, round(percentage, 2), round(speed, 2), int(eta))
+
+    def _write_task_progress(
+        self,
+        uploaded: int,
+        total_size: int,
+        percentage: float,
+        speed: float,
+        eta: int,
+    ):
+        """Write upload progress directly into the shared task dict."""
+        if self.task_queue is None:
+            return
+        task = self.task_queue.tasks.get(self.task_data["task_id"])
+        if task is not None:
+            task["upload_progress"] = {
+                "total_size": total_size,
+                "uploaded":   uploaded,
+                "percentage": percentage,
+                "speed":      speed,
+                "eta":        eta,
+            }
 
     def get_progress(self) -> dict:
         return self.upload_progress.copy()

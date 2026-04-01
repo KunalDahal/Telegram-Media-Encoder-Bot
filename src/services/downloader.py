@@ -2,6 +2,7 @@ import os
 import asyncio
 import time
 
+
 class Downloader:
     def __init__(self, temp_base: str, task_queue=None, task_id=None):
         self.temp_base  = temp_base
@@ -66,6 +67,20 @@ class Downloader:
 
             print(f"[Downloader] Done: {actual_path} ({os.path.getsize(actual_path):,} bytes)")
             self.download_progress["status"] = "completed"
+
+            # ── Final 100% write-back ─────────────────────────────────────────
+            if self.task_queue and self.task_id:
+                self.task_queue.update_status(self.task_id, "downloading", 100)
+                task = self.task_queue.tasks.get(self.task_id)
+                if task is not None:
+                    task["progress_details"] = {
+                        "total_size": self.download_progress["total_size"],
+                        "downloaded": self.download_progress["total_size"],
+                        "percentage": 100,
+                        "speed":      0,
+                        "eta":        0,
+                    }
+
             return actual_path
 
         except asyncio.CancelledError:
@@ -108,7 +123,20 @@ class Downloader:
         })
 
         if self.task_queue and self.task_id:
+            # Update the scalar progress field (used as fallback)
             self.task_queue.update_status(self.task_id, "downloading", round(percentage, 2))
+
+            # ── Write full progress details into the task dict ────────────────
+            # status.py reads task["progress_details"] to show speed / ETA.
+            task = self.task_queue.tasks.get(self.task_id)
+            if task is not None:
+                task["progress_details"] = {
+                    "total_size": total or self.download_progress["total_size"],
+                    "downloaded": current,
+                    "percentage": round(percentage, 2),
+                    "speed":      round(speed, 2),
+                    "eta":        int(eta),
+                }
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

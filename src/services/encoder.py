@@ -5,22 +5,19 @@ class Encoder:
     def __init__(self, ffmpeg):
         self.ffmpeg = ffmpeg
         self.encode_progress = {
-            "status": "idle",
+            "status":     "idle",
             "percentage": 0,
-            "stage": ""
+            "stage":      "",
         }
-        self.current_process = None
 
     async def encode(self, task_data: dict, input_path: str, settings: dict) -> str:
         output_file_name = task_data["output_filename"]
-        task_folder = os.path.dirname(input_path)
-        resolution = task_data.get("resolution", "1080p")
+        task_folder      = os.path.dirname(input_path)
+        resolution       = task_data.get("resolution", "1080p")
 
         base_name, ext = os.path.splitext(output_file_name)
-        # Use a plain alphanumeric temp name to avoid FFmpeg choking on
-        # special characters (brackets, spaces, @) in the user-supplied filename.
-        task_id_short = task_data.get("task_id", "enc")[:8]
-        safe_ext = ext if ext else ".mp4"
+        task_id_short    = task_data.get("task_id", "enc")[:8]
+        safe_ext         = ext if ext else ".mp4"
         temp_output_name = f"_tmp_{task_id_short}_{resolution}{safe_ext}"
         temp_output_path = os.path.join(task_folder, temp_output_name)
         final_output_path = os.path.join(task_folder, output_file_name)
@@ -31,23 +28,11 @@ class Encoder:
         cmd = self.ffmpeg.build_command(input_path, temp_output_path, settings)
 
         self.encode_progress["status"] = "encoding"
-        self.encode_progress["stage"] = "starting"
-
-        try:
-            success, error = await self.ffmpeg.execute(cmd)
-            if not success:
-                self.encode_progress["status"] = "failed"
-                raise Exception(f"Encoding failed: {error}")
-        except asyncio.CancelledError:
-            if self.current_process:
-                try:
-                    self.current_process.terminate()
-                    await asyncio.sleep(0.5)
-                    if self.current_process.returncode is None:
-                        self.current_process.kill()
-                except Exception:
-                    pass
-            raise
+        self.encode_progress["stage"]  = "starting"
+        success, error = await self.ffmpeg.execute(cmd)
+        if not success:
+            self.encode_progress["status"] = "failed"
+            raise Exception(f"Encoding failed: {error}")
 
         if not os.path.exists(temp_output_path):
             self.encode_progress["status"] = "failed"

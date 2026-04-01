@@ -75,22 +75,22 @@ async def process_rename_command(client: Client, message: Message, task_queue, u
     file_size = None
 
     if replied.video:
-        file_id = replied.video.file_id
+        file_id            = replied.video.file_id
         original_file_name = replied.video.file_name or f"video_{replied.video.file_id[:8]}.mp4"
-        file_size = replied.video.file_size
+        file_size          = replied.video.file_size
 
     elif replied.document:
         file_name = replied.document.file_name or ""
-        file_ext = os.path.splitext(file_name)[1].lower()
+        file_ext  = os.path.splitext(file_name)[1].lower()
         if file_ext not in ALLOWED_VIDEO_EXTENSIONS:
             await message.reply_text(
                 f"Only video files are allowed.\n"
                 f"Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}"
             )
             return
-        file_id = replied.document.file_id
+        file_id            = replied.document.file_id
         original_file_name = replied.document.file_name or f"video_{replied.document.file_id[:8]}{file_ext}"
-        file_size = replied.document.file_size
+        file_size          = replied.document.file_size
 
     else:
         await message.reply_text(
@@ -117,48 +117,45 @@ async def process_rename_command(client: Client, message: Message, task_queue, u
         return
 
     settings_obj = user_settings(user_id)
-    settings = copy.deepcopy(settings_obj.get())
-    watermark = settings_obj.get_watermark()
+    settings     = copy.deepcopy(settings_obj.get())
+    watermark    = settings_obj.get_watermark()
 
     job = {
-        "resolution": "rename",
+        "resolution":      "rename",
         "output_filename": requested_filename,
         "processing_mode": "rename",
-        "audio_bitrate": None,
-        "metadata": settings.get("metadata", {}),
-        "thumbnail_path": settings.get("thumbnail_path", ""),
-        "send_type": settings.get("send_type", "media"),
+        "audio_bitrate":   None,
+        "metadata":        settings.get("metadata", {}),
+        "thumbnail_path":  settings.get("thumbnail_path", ""),
+        "send_type":       settings.get("send_type", "media"),
     }
 
     task_data = {
-        "user_id": user_id,
-        "first_name": message.from_user.first_name,
-        "username": message.from_user.username,
-        "chat_id": message.chat.id,
-        "message_id": message.id,
-        "file_id": file_id,
-        "original_file_name": original_file_name,
+        "user_id":                   user_id,
+        "first_name":                message.from_user.first_name,
+        "username":                  message.from_user.username,
+        "chat_id":                   message.chat.id,
+        "message_id":                message.id,
+        "file_id":                   file_id,
+        "original_file_name":        original_file_name,
         "requested_output_filename": requested_filename,
-        "output_filename": requested_filename,
-        "resolution": "rename",
-        "created_at": datetime.utcnow().isoformat(),
-        "file_size": file_size,
-        "send_type": settings.get("send_type", "media"),
-        "resolutions": ["rename"],
-        "jobs": [job],
-        "total_jobs": 1,
-        "current_job": 0,
-        "current_stage": "queued",
-        "thumbnail_path": settings.get("thumbnail_path", ""),
-        "watermark": watermark,
-        "settings_snapshot": settings,
+        "output_filename":           requested_filename,
+        "resolution":                "rename",
+        "created_at":                datetime.utcnow().isoformat(),
+        "file_size":                 file_size,
+        "send_type":                 settings.get("send_type", "media"),
+        "resolutions":               ["rename"],
+        "jobs":                      [job],
+        "total_jobs":                1,
+        "current_job":               0,
+        "current_stage":             "queued",
+        "thumbnail_path":            settings.get("thumbnail_path", ""),
+        "watermark":                 watermark,
+        "settings_snapshot":         settings,
     }
 
-    task_id = task_queue.create_task(task_data)
+    task_id  = task_queue.create_task(task_data)
     position = task_queue.get_queue_position(task_id)
-
-    wm = watermark or {}
-    wm_note = "watermark + metadata" if wm.get("enabled") and wm.get("text") else "metadata only"
 
     await message.reply_text(
         f"Task `{requested_filename}` queued at position **[{position}]**\n"
