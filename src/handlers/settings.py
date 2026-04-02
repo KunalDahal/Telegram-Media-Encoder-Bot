@@ -351,7 +351,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
     allowed_group_filter = filters.chat(config.allowed_group_ids)
 
     # ── /es — allowed groups only ─────────────────────────────────────────────
-    filters.command(["es", "us","encodesettings","settings","usersettings"]) & (filters.private | filters.chat(config.allowed_group_ids))
+    @app.on_message(
+    filters.command(["es", "us", "encodesettings", "settings", "usersettings"])
+    & (filters.private | filters.chat(config.allowed_group_ids)))
     async def us_command(client: Client, message: Message):
         user_id = message.from_user.id
 
@@ -395,10 +397,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
-            await message.reply_text("Settings sent to your DM!")
         except Exception:
             await message.reply_text(
-                "❌ Couldn't send to your DM. Please /start the bot first.",
+                "Couldn't send to your DM. Please /start the bot first.",
                 parse_mode=ParseMode.HTML,
             )
 

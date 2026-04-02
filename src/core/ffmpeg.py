@@ -58,19 +58,11 @@ def _wm_position_expr(position: str, pad: float) -> str:
 
 
 def _cpu_thread_limit(max_cpu_pct: float = 75.0) -> int:
-    """
-    Return the number of FFmpeg threads that keeps total CPU usage at or
-    below max_cpu_pct of all logical cores combined.
-
-    Formula:  threads = floor(cpu_count * max_cpu_pct / 100)
-    Always returns at least 1.
-    """
     cpu_count = os.cpu_count() or 1
     threads   = math.floor(cpu_count * max_cpu_pct / 100.0)
     return max(1, threads)
 
 
-# Pre-compute once at import time so there is no per-call overhead.
 _FFMPEG_THREADS = _cpu_thread_limit(75.0)
 
 
@@ -261,7 +253,6 @@ class FFmpeg:
                     "-c:v", source_codec,
                     "-crf", "18",
                     "-preset", "medium",
-                    "-threads", str(_FFMPEG_THREADS),
                     "-vf", wm_filter,
                     "-pix_fmt", "yuv420p",
                     "-map_metadata", "0",
@@ -329,10 +320,25 @@ class FFmpeg:
         cmd.extend(["-y", output_path])
         return cmd
 
-    async def execute(self, cmd: list):
+    # ── Execute ───────────────────────────────────────────────────────────────
+
+    async def execute(
+        self,
+        cmd:           list,
+        duration_secs: float = 0.0,
+        progress_cb=None,
+    ) -> tuple[bool, str | None]:
+        use_progress = bool(progress_cb and duration_secs > 0.5)
+
+        if use_progress:
+            out_file = cmd[-1]
+            cmd_run  = list(cmd[:-1]) + ["-progress", "pipe:1", "-nostats", out_file]
+        else:
+            cmd_run = list(cmd)
+
         try:
             process = await asyncio.create_subprocess_exec(
-                *cmd,
+                *cmd_run,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=self._env,
@@ -340,36 +346,21 @@ class FFmpeg:
             self.current_process = process
 
             try:
-                stdout, stderr = await process.communicate()
-
-                if process.returncode != 0:
-                    error_msg = stderr.decode("utf-8", errors="ignore")
-                    print(f"[FFmpeg] Exit code {process.returncode}\n{error_msg}")
-                    return False, f"FFmpeg error (code {process.returncode}): {_extract_ffmpeg_error(error_msg)}"
-
-                output_file = cmd[-1]
-                if not os.path.exists(output_file):
-                    return False, f"Output file not created: {output_file}"
-                if os.path.getsize(output_file) == 0:
-                    return False, f"Output file is empty: {output_file}"
-                return True, None
+                if use_progress:
+                    return await self._execute_with_progress(
+                        process, cmd, duration_secs, progress_cb
+                    )
+                else:
+                    return await self._execute_simple(process, cmd)
 
             except asyncio.CancelledError:
-                if self.current_process and self.current_process.returncode is None:
-                    try:
-                        self.current_process.terminate()
-                        await asyncio.sleep(0.5)
-                        if self.current_process.returncode is None:
-                            self.current_process.kill()
-                        await self.current_process.wait()
-                    except Exception:
-                        pass
+                await self._kill_process(process)
                 raise
 
         except (FileNotFoundError, PermissionError, OSError) as e:
             return False, (
                 f"Cannot launch FFmpeg ('{self.ffmpeg_path}'): {e}\n"
-                "Make sure ffmpeg is on your system PATH or in the project bin/ folder."
+                "Make sure ffmpeg is on your PATH or in the project bin/ folder."
             )
         except asyncio.CancelledError:
             raise
@@ -377,3 +368,107 @@ class FFmpeg:
             return False, f"Unexpected error: {e}"
         finally:
             self.current_process = None
+
+    async def _execute_with_progress(
+        self, process, cmd: list, duration_secs: float, progress_cb
+    ) -> tuple[bool, str | None]:
+
+        stderr_chunks: list[bytes] = []
+
+        async def _read_stdout():
+            try:
+                async for raw in process.stdout:
+                    line = raw.decode("utf-8", errors="ignore").strip()
+                    if "=" not in line:
+                        continue
+                    key, _, val = line.partition("=")
+                    if key in ("out_time_ms", "out_time_us"):
+                        try:
+                            us  = int(val)
+                            pct = min(99.9, us / 1_000_000 / duration_secs * 100)
+                            await progress_cb(pct)
+                        except (ValueError, ZeroDivisionError):
+                            pass
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+
+        async def _read_stderr():
+            try:
+                async for raw in process.stderr:
+                    stderr_chunks.append(raw)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+
+        t_out = asyncio.create_task(_read_stdout())
+        t_err = asyncio.create_task(_read_stderr())
+
+        try:
+            await asyncio.gather(t_out, t_err)
+        except asyncio.CancelledError:
+            t_out.cancel()
+            t_err.cancel()
+            await asyncio.gather(t_out, t_err, return_exceptions=True)
+            raise
+
+        await process.wait()
+
+        stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="ignore")
+        output_file = cmd[-1]
+
+        if process.returncode != 0:
+            print(f"[FFmpeg] Exit code {process.returncode}\n{stderr_text}")
+            return False, (
+                f"FFmpeg error (code {process.returncode}): "
+                f"{_extract_ffmpeg_error(stderr_text)}"
+            )
+
+        if not os.path.exists(output_file):
+            return False, f"Output file not created: {output_file}"
+        if os.path.getsize(output_file) == 0:
+            return False, f"Output file is empty: {output_file}"
+
+        # Signal completion
+        try:
+            await progress_cb(100.0)
+        except Exception:
+            pass
+
+        return True, None
+
+    async def _execute_simple(
+        self, process, cmd: list
+    ) -> tuple[bool, str | None]:
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode("utf-8", errors="ignore")
+            print(f"[FFmpeg] Exit code {process.returncode}\n{error_msg}")
+            return False, (
+                f"FFmpeg error (code {process.returncode}): "
+                f"{_extract_ffmpeg_error(error_msg)}"
+            )
+
+        output_file = cmd[-1]
+        if not os.path.exists(output_file):
+            return False, f"Output file not created: {output_file}"
+        if os.path.getsize(output_file) == 0:
+            return False, f"Output file is empty: {output_file}"
+
+        return True, None
+
+    @staticmethod
+    async def _kill_process(process):
+        if process.returncode is not None:
+            return
+        try:
+            process.terminate()
+            await asyncio.sleep(0.4)
+            if process.returncode is None:
+                process.kill()
+            await process.wait()
+        except Exception:
+            pass

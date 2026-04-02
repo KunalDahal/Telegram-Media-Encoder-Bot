@@ -67,13 +67,12 @@ async def main():
     await app.start()
 
     # ── Register handlers ─────────────────────────────────────────────────────
-
     setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
     setup_rename_handler(app, task_queue, get_user_settings, config)
     setup_mediainfo_handlers(app=app, config=config)
     setup_cancel_handlers(app, task_queue, config)
     setup_status_handlers(app=app, task_queue=task_queue, admin_ids=config.admin_ids, config=config)
-    setup_start_handler(app, config)
+    setup_start_handler(app, config)  
     setup_batch_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
     setup_batch_rename_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
     setup_settings_handlers(app=app, user_settings=get_user_settings, config=config)
@@ -91,12 +90,14 @@ async def main():
     ╔══════════════════════════════════╗
     ║  @{me.username:<31}║
     ╠══════════════════════════════════╣
-    ║  /start   – Welcome (DM only)    ║
-    ║  /help    – Help menu            ║
+    ║  /start   – Welcome              ║     
     ║  /es      – Encoding settings    ║
-    ║  /encode  – Queue a file         ║
+    ║  /encode  – Single Encode        ║
+    ║  /be      – Batch Encode         ║
     ║  /rename  – Rename a file        ║
+    ║  /br      – Batch Rename         ║
     ║  /status  – Queue status         ║
+    ║  /mi      – Media Info           ║
     ║  /cancel  – Cancel a task        ║
     ╚══════════════════════════════════╝
     """)

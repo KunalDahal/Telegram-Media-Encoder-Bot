@@ -11,7 +11,7 @@ from src import Config
 
 # ── Start text ────────────────────────────────────────────────────────────────
 
-START_TEXT = """<b>EncodeBot</b>  <i>— Video Encoding Assistant</i>
+START_TEXT = """<b>TojiEncodeBot</b>  <i>— Video Encoding & Renaming Assistant</i>
 
 <blockquote>Drop a video or an album, configure your settings, and receive
 perfectly processed files — all without leaving Telegram.</blockquote>
