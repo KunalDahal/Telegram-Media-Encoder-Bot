@@ -9,497 +9,525 @@ from pyrogram.types import (
 from src import Config
 
 
-# ── Start text ────────────────────────────────────────────────────────────────
+# ── Style constants ────────────────────────────────────────────────────────────
 
-START_TEXT = """<b>TojiEncodeBot</b>  <i>— Video Encoding & Renaming Assistant</i>
+_D  = "━━━━━━━━━━━━━━━━━━"
+_Ds = "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
+_B  = "◆"
+_S  = "◈"
+_A  = "↳"
+_H  = "■"
 
-<blockquote>Drop a video or an album, configure your settings, and receive
-perfectly processed files — all without leaving Telegram.</blockquote>
 
-&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;
+# ── Start screen ───────────────────────────────────────────────────────────────
 
-&#9670;  Multi-resolution encoding  <i>(up to 4 at once)</i>
-&#9670;  Batch encode or rename entire albums in one command
-&#9670;  Per-resolution quality profiles  <i>(CRF, preset, codec)</i>
-&#9670;  Custom watermark with timing control
-&#9670;  Metadata embedding on every output
-&#9670;  Live queue and progress tracking
+START_TEXT = (
+    "<b>TOJI-Encode</b>  <i>— Video Encoding &amp; Renaming Bot</i>\n"
+    "\n"
+    "<i>Drop a video, configure settings, get perfectly\n"
+    "processed files — without leaving Telegram.</i>\n"
+    "\n"
+    f"{_D}\n"
+    "\n"
+    f"{_B}  Multi-resolution encoding  <i>(up to 4 at once)</i>\n"
+    f"{_B}  Batch rename entire albums in one command\n"
+    f"{_B}  Per-resolution quality profiles\n"
+    f"{_B}  Custom watermark with timing control\n"
+    f"{_B}  Metadata embedding on every output\n"
+    f"{_B}  Live queue and real-time progress\n"
+    "\n"
+    f"{_D}\n"
+    "\n"
+    f"<code>/es</code>  to configure  ·  tap <b>Guide ⮞</b> for full reference"
+)
 
-&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;&#9135;
 
-<code>/es</code>  to configure  &#183;  tap <b>Guide</b> for the full reference"""
-
-# ── Help pages (all ≤ 1024 rendered chars for photo caption compatibility) ────
-
-_D = "&#9135;" * 18   # divider
-_B = "&#9675;"         # bullet  ○
-_A = "&#8594;"         # arrow   →
-_V = "&#8627;"         # down    ↳
+# ── Help pages  (each MUST stay ≤ 1024 chars) ─────────────────────────────────
 
 PAGES = [
 
-# ── Page 1 — Index ────────────────────────────────────────────────────────────
-f"""<b>EncodeBot</b>  <i>— Complete Guide</i>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 1 — Table of Contents
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>EncodeBot  —  Complete Guide</b>
 
-<blockquote>Every command explained in full detail.
-Navigate page by page using the arrows below.</blockquote>
+Navigate page by page using the arrows below.
+
+{_D}
+<b>{_H} Command Index</b>
+
+<b>Settings</b>
+  <code>/es</code>        — Configure all bot settings
+
+<b>Encoding</b>
+  <code>/encode</code>   — Encode a video  <i>(single or batch with -b)</i>
+
+<b>Renaming</b>
+  <code>/rename</code>   — Rename a file   <i>(single or batch with -b)</i>
+
+<b>Utility</b>
+  <code>/mi</code>       — MediaInfo report
+  <code>/status</code>   — Live queue &amp; bot stats
+  <code>/cancel</code>   — Stop a running task
+
+<b>Reference</b>
+  Tips &amp; Best Practices
+  Do's and Don'ts
+{_D}""",
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 2 — /es Settings (1/2)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /es  —  Settings  (1/2)</b>
+
+<i>Opens the settings panel. Changes are saved to your account.</i>
 
 {_D}
 
-<b>Command Index</b>
+<b>{_S} Resolution</b>
+Select one or more output resolutions (up to 4).
 
-  <code>/es</code>      &#8212;  Settings panel            pg 2&#8211;3
-  <code>/encode</code>  &#8212;  Encode a single file      pg 4
-  <code>/be</code>      &#8212;  Batch encode an album     pg 5
-  <code>/rename</code>  &#8212;  Rename a single file      pg 6
-  <code>/br</code>      &#8212;  Batch rename an album     pg 7
-  <code>/mi</code>      &#8212;  MediaInfo report          pg 8
-  <code>/status</code>  &#8212;  Live queue &amp; stats        pg 9
-  <code>/cancel</code>  &#8212;  Stop a running task       pg 10
-  <code>/start</code>   &#8212;  Introduction screen
+  <code>HDRip  ·  1080p  ·  720p  ·  480p</code>
 
-{_D}
-<i>Page 1 / 12  &#8212;  tap &#11158; to begin</i>""",
+<b>HDRip</b> = stream-copy + metadata only.
+No re-encode, source quality preserved exactly.
 
+{_Ds}
 
-# ── Page 2 — /es (1/2) ───────────────────────────────────────────────────────
-f"""<b>&#9632; /es  &#8212;  Settings  (1/2)</b>
+<b>{_S} Quality Profile  <i>(per resolution)</i></b>
+Each resolution has its own encoding profile.
 
-<blockquote>Opens an interactive panel.  All settings are saved
-per user and persist across every session.</blockquote>
+  <b>CRF</b>     — 0–51  (lower = better, larger file)
+  <b>Preset</b>  — ultrafast → veryslow
+  <b>Codec</b>   — <code>libx264</code>  or  <code>libx265</code>
+  <b>Audio</b>   — <code>96k  128k  192k  320k</code>
 
-{_D}
+<b>Defaults:</b>
+  <code>1080p</code>  CRF 23 · medium · libx264 · 192k
+  <code>720p</code>   CRF 26 · medium · libx264 · 128k
+  <code>480p</code>   CRF 28 · fast   · libx264 · 96k
 
-<b>&#9112; Resolution</b>
-<blockquote>Select one or more output resolutions  (max 4 per task).
-  <code>HDRip  &#183;  1080p  &#183;  720p  &#183;  480p</code>
-
-<code>HDRip</code> = stream-copy + metadata only.  No re-encode ever.
-Use it to preserve the original quality untouched.</blockquote>
-
-<b>&#9112; Quality Profile  <i>(per resolution)</i></b>
-<blockquote>Each resolution has its own independent profile.
-
-  <b>CRF</b>     &#8212;  0&#8211;51  (lower = better quality, bigger file)
-  <b>Preset</b>  &#8212;  ultrafast / fast / medium / slow / veryslow
-  <b>Codec</b>   &#8212;  <code>libx264</code>  or  <code>libx265</code>
-  <b>Audio</b>   &#8212;  bitrate e.g. <code>96k  128k  192k  320k</code>
-
-Defaults:
-  HDRip  &#8212;  copy only
-  1080p  &#8212;  CRF 23, medium, libx264, 192k
-  720p   &#8212;  CRF 26, medium, libx264, 128k
-  480p   &#8212;  CRF 28, fast,   libx264,  96k</blockquote>
-
-{_D}
-<i>Page 2 / 12  &#8212;  continued &#11158;</i>""",
+{_D}""",
 
 
-# ── Page 3 — /es (2/2) ───────────────────────────────────────────────────────
-f"""<b>&#9632; /es  &#8212;  Settings  (2/2)</b>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 3 — /es Settings (2/2)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /es  —  Settings  (2/2)</b>
 
 {_D}
 
-<b>&#9112; Send Type</b>
-<blockquote><code>Media</code>     &#8212;  sent as a streamable video
-<code>Document</code>  &#8212;  sent as a raw file (no compression)</blockquote>
+<b>{_S} Send Type</b>
+<code>Media</code> — streamable  ·  <code>Document</code> — raw file
 
-<b>&#9112; Metadata</b>
-<blockquote>Embedded into every output file automatically.
-  <b>Title</b>    &#8212;  film or episode name
-  <b>Author</b>   &#8212;  your name or channel
-  <b>Encoder</b>  &#8212;  encoder tag string</blockquote>
+{_Ds}
 
-<b>&#9112; Thumbnail</b>
-<blockquote>Cover image attached on every upload.
-Send a JPEG or PNG via /es to set it.</blockquote>
+<b>{_S} Metadata</b>
+  <b>Title</b> · <b>Author</b> · <b>Encoder</b>
+  Embedded in every output automatically.
 
-<b>&#9112; Watermark</b>
-<blockquote>Text burned onto the video track.
-  Fields: text, font (TTF/OTF), size, colour, position, padding
+{_Ds}
 
-  Timing: <code>full</code> (all) &#183; <code>range</code> (start&#8211;end sec) &#183; <code>random</code> (duration, random start)
-  Positions: top/mid/bot &#215; left/mid/right  (9 total)</blockquote>
+<b>{_S} Thumbnail</b>
+  Upload <code>JPG/PNG</code> via <code>/es</code>.
+  Reused for all encoded and renamed files.
 
-<b>&#9112; Filename Format</b>
-<blockquote>Template used by <code>/be</code> and <code>/br</code> to name output files.
-Set it here via /es &#8594; Filename Format.
-Placeholders: <code>{{title}} {{season}} {{episode}} {{quality}} {{audio}}</code>
-<code>{{title}}</code>, <code>{{episode}}</code>, <code>{{quality}}</code> are always required.
-<code>[{{audio}}]</code> in brackets is auto-dropped when -a is not passed.
-The bot validates your command against the template and will
-tell you exactly which argument is missing if anything is wrong.</blockquote>
+{_Ds}
 
-{_D}
-<i>Page 3 / 12</i>""",
+<b>{_S} Watermark</b>
+  Text burned onto the video.
+  Fields: Text · Font · Size · Color · Padding · Position
+  Modes: <code>full</code> · <code>range</code> · <code>random</code>
 
+{_Ds}
 
-# ── Page 4 — /encode ──────────────────────────────────────────────────────────
-f"""<b>&#9632; /encode  &#8212;  Encode a Single File</b>
+<b>{_S} Placeholders</b>
+  <code>-e</code> Episode · <code>-s</code> Season · <code>-a</code> Audio
+  Used by <code>/encode</code> when flags are omitted.
 
-<blockquote>Reply to a video, then run this command with an output filename.
-The bot downloads, encodes at each resolution, and uploads
-each output to your DM automatically.</blockquote>
+{_Ds}
 
-{_D}
+<b>{_S} Filename Format</b>
+<code>[S{{season}}-{{episode}}] {{title}} [{{quality}}].mkv</code>
+→ <code>[S01-01] Title [1080p].mkv</code>
 
-<b>Syntax</b>
-<blockquote><code>/encode "Filename {{quality}}.ext"</code></blockquote>
-
-<b>Rules</b>
-<blockquote>{_B}  Must be a reply to a video or video document
-{_B}  <code>{{quality}}</code> placeholder is required in the filename
-{_B}  Must end with a valid video extension
-{_B}  Wrap filenames in quotes if they contain spaces</blockquote>
-
-<b>Extensions</b>
-<blockquote><code>.mp4  .mkv  .webm  .mov  .avi  .mpeg  .flv  .3gp</code></blockquote>
-
-<b>Example</b>
-<blockquote>Settings: 1080p + 720p selected
-<code>/encode "Dark Knight {{quality}}.mkv"</code>
-
-Output to your DM:
-  {_V}  Dark Knight 1080p.mkv
-  {_V}  Dark Knight 720p.mkv</blockquote>
-
-<b>What gets applied</b>
-<blockquote>Resolution scaling with aspect-ratio padding
-CRF / preset / codec from the per-resolution profile
-Watermark burn-in <i>(if enabled)</i>  &#183;  Metadata  &#183;  Thumbnail
-<code>HDRip</code> skips all encoding — stream-copy + metadata only</blockquote>
-
-<b>Flow per resolution</b>
-<blockquote>Download  {_A}  Encode  {_A}  Upload to DM  {_A}  next resolution</blockquote>
-
-{_D}
-<i>Page 4 / 12</i>""",
+{_D}""",
 
 
-# ── Page 5 — /be ──────────────────────────────────────────────────────────────
-f"""<b>&#9632; /be  &#8212;  Batch Encode an Album</b>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 4 — /encode (single)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /encode  —  Encode a Video</b>
 
-<blockquote>Queues an entire Telegram album for encoding in one command.
-Episode numbers are assigned automatically from -e onward.
-Uses your saved filename template and encoding settings.</blockquote>
+<i>Reply to a video, then send /encode with flags. Filename is built from your format template in /es.</i>
 
 {_D}
 
-<b>Syntax</b>  <i>(reply to first file in the album)</i>
-<blockquote><code>/be -e &lt;ep&gt; -t &lt;title&gt; [-s &lt;season&gt;] [-a &lt;audio&gt;]</code></blockquote>
+<b>{_S} Usage</b>
+<code>/encode [-s S] [-e E] [-a AUDIO] [-q RES] -t Title</code>
 
-<b>Arguments</b>
-<blockquote><code>-e</code>  Starting episode number   <i>required</i>
-<code>-t</code>  Show or movie title        <i>required — always last</i>
-<code>-s</code>  Season number              <i>optional, default: 1</i>
-<code>-a</code>  Audio label (SUB/DUB/etc)  <i>optional</i></blockquote>
+<b>Flags</b>
+  <code>-t</code>  Title  <b>(required, must be last)</b>
+  <code>-e</code>  Episode  <i>(falls back to saved default)</i>
+  <code>-s</code>  Season   <i>(falls back to saved default)</i>
+  <code>-a</code>  Audio tag  e.g. <code>SUB</code> · <code>DUAL</code>
+  <code>-q</code>  Force one resolution  e.g. <code>720p</code>
 
-<b>Which arguments are required?</b>
-<blockquote>The bot checks your saved template and only requires the
-arguments that match the placeholders present in it.
+{_Ds}
 
-Template: <code>{{title}} S{{season}}E{{episode}} [{{quality}}].mkv</code>
-{_A}  <code>-e</code> and <code>-t</code> required  &#183;  <code>-s</code> defaults to 1  &#183;  <code>-a</code> not needed
+<b>{_S} Examples</b>
+<code>/encode -t Pokemon</code>
+<code>/encode -e 12 -t Dragon Ball</code>
+<code>/encode -s 2 -e 5 -a DUAL -t Naruto</code>
+<code>/encode -q 720p -e 3 -t One Piece</code>
 
-Template: <code>{{title}} S{{season}}E{{episode}} [{{quality}}] [{{audio}}].mkv</code>
-{_A}  All four required  <i>({{audio}} without brackets forces -a)</i>
+{_Ds}
 
-Template: <code>{{title}} S{{season}}E{{episode}} [{{quality}}] [{{audio}}].mkv</code>
-wrapped as <code>[{{audio}}]</code> &#8594; <code>-a</code> is optional; bracket auto-drops if omitted.</blockquote>
+<b>{_S} Notes</b>
+{_B}  Reply to a video or video document
+{_B}  Without <code>-q</code>, all selected resolutions are used
+{_B}  Omitted flags use saved defaults from <code>/es</code>
 
-<b>Example</b>
-<blockquote>Album: 3 files  &#183;  Template: <code>{{title}} S{{season}}E{{episode}} [{{quality}}].mkv</code>
-<code>/be -e 5 -s 2 -t Attack on Titan</code>
-
-Output to DM:
-  {_V}  Attack on Titan S02E05 [1080p].mkv
-  {_V}  Attack on Titan S02E06 [1080p].mkv
-  {_V}  Attack on Titan S02E07 [1080p].mkv</blockquote>
-
-<b>Notes</b>
-<blockquote>{_B}  Template must be set first via /es {_A} Filename Format
-{_B}  Template must include <code>{{title}}</code>, <code>{{episode}}</code>, <code>{{quality}}</code>
-{_B}  Each file gets its own task ID — cancel individually if needed
-{_B}  Non-video files in the album are skipped automatically</blockquote>
-
-{_D}
-<i>Page 5 / 12</i>""",
+{_D}""",
 
 
-# ── Page 6 — /rename ──────────────────────────────────────────────────────────
-f"""<b>&#9632; /rename  &#8212;  Rename a Single File</b>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 5 — /encode -b (batch encode)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /encode -b  —  Batch Encode an Album</b>
 
-<blockquote>Renames any video with a new filename.
-Injects your saved metadata and optionally burns a watermark.
-No encoding configuration or {{quality}} placeholder needed.</blockquote>
+<i>Reply to the first file of an album and add -b. Each file is queued with an auto-incremented episode.</i>
 
 {_D}
 
-<b>Syntax</b>
-<blockquote><code>/rename "New Filename.ext"</code>
-Reply to the target video first.</blockquote>
+<b>{_S} Usage</b>
+<code>/encode -b [-s S] [-e E] [-a AUDIO] [-q RES] -t Title</code>
 
-<b>Example</b>
-<blockquote><code>/rename "Inception.2010.BluRay.mkv"</code>
+<b>Flags</b>
+  <code>-b</code>  Batch mode  <b>(required)</b>
+  <code>-t</code>  Title       <b>(required, must be last)</b>
+  <code>-e</code>  Start episode 
+  <code>-s</code>  Season  <i>(use saved defaults if omitted)</i>
+  <code>-a</code>  Audio tag e.g. <code>SUB</code>
+  <code>-q</code>  Force resolution e.g. <code>720p</code>
 
-Output to your DM:
-  {_V}  Inception.2010.BluRay.mkv</blockquote>
+{_Ds}
 
-<b>What gets applied</b>
-<blockquote>{_B}  New filename
-{_B}  Metadata  <i>(Title, Author, Encoder from /es)</i>
-{_B}  Thumbnail on upload
-{_B}  Watermark  <i>(only if enabled in /es)</i></blockquote>
+<b>{_S} Example</b>
+{_A} Album: 3 files · resolutions: <code>1080p, 720p</code>
+<code>/encode -b -s 1 -e 4 -a SUB -t Pokemon</code>
+{_A} Queues Ep 04, 05, 06 at both 1080p and 720p
 
-<b>Encoding behaviour</b>
-<blockquote><u>Watermark disabled</u>
-Pure stream-copy.  Video, audio, subtitles, fonts and all
-metadata preserved with zero quality loss.  Fastest operation.
+{_Ds}
 
-<u>Watermark enabled</u>
-Video re-encoded at CRF 18 using the source codec
-<i>(H.264 or H.265 auto-detected)</i>.  Audio, subtitles, and
-fonts are still stream-copied.  Only video track is touched.</blockquote>
+<b>{_S} Notes</b>
+{_B}  Reply to the <u>first</u> file of the album
+{_B}  Episode auto-increments by 1 per file
+{_B}  Filename built from format template in <code>/es</code>
 
-{_D}
-<i>Page 6 / 12</i>""",
+{_D}""",
 
 
-# ── Page 7 — /br ──────────────────────────────────────────────────────────────
-f"""<b>&#9632; /br  &#8212;  Batch Rename an Album</b>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 6 — /rename (single)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /rename  —  Rename a Single File</b>
 
-<blockquote>Renames an entire Telegram album in one command.
-Quality label is supplied manually via -q (not auto-detected).
-Applies metadata and watermark the same way as /rename.</blockquote>
+<i>Reply to any video file with /rename followed by the new filename. No re-encoding. Thumbnail, metadata, and watermark are applied.</i>
 
 {_D}
 
-<b>Syntax</b>  <i>(reply to first file in the album)</i>
-<blockquote><code>/br -e &lt;ep&gt; -q &lt;quality&gt; -t &lt;title&gt; [-s &lt;season&gt;] [-a &lt;audio&gt;]</code></blockquote>
+<b>{_S} Usage</b>
+<code>/rename &lt;new filename.ext&gt;</code>
 
-<b>Arguments</b>
-<blockquote><code>-e</code>  Starting episode number   <i>required</i>
-<code>-q</code>  Quality label              <i>required  e.g. HDRip BluRay WEBRip</i>
-<code>-t</code>  Show or movie title        <i>required — always last</i>
-<code>-s</code>  Season number              <i>optional, default: 1</i>
-<code>-a</code>  Audio label                <i>optional</i></blockquote>
+{_Ds}
 
-<b>Which arguments are required?</b>
-<blockquote>The bot checks your saved template and only requires the
-arguments that match the placeholders present in it.
+<b>{_S} Example</b>
+{_A} Command:
+<code>/rename [S01-E05] Pokemon [1080p].mkv</code>
+{_A} Output sent to your DM:
+<code>[S01-E05] Pokemon [1080p].mkv</code>
+with thumbnail, metadata, watermark applied.
 
-If your template has <code>{{quality}}</code> {_A} <code>-q</code> is required.
-If your template has <code>{{audio}}</code> without brackets {_A} <code>-a</code> is required.
-If your template has <code>[{{audio}}]</code> {_A} <code>-a</code> is optional; bracket auto-drops.</blockquote>
+{_Ds}
 
-<b>Example</b>
-<blockquote>Template: <code>{{title}} S{{season}}E{{episode}} [{{quality}}].mkv</code>
-<code>/br -e 1 -s 1 -q HDRip -t Demon Slayer</code>
+<b>{_S} What Gets Applied</b>
+{_B}  Thumbnail from your settings
+{_B}  Metadata  <i>(title, author, encoder)</i>
+{_B}  Watermark  <i>(if enabled in /es)</i>
 
-Output to DM:
-  {_V}  Demon Slayer S01E01 [HDRip].mkv
-  {_V}  Demon Slayer S01E02 [HDRip].mkv  … etc.</blockquote>
+{_Ds}
 
-<b>Notes</b>
-<blockquote>{_B}  -q fills {{quality}} literally — any label works (BluRay, WEBRip…)
-{_B}  Template must be set via /es {_A} Filename Format
-{_B}  Each file gets its own task ID
-{_B}  Non-video files in the album are skipped</blockquote>
+<b>{_S} Notes</b>
+{_B}  Must reply to a video or video document
+{_B}  New filename must include a valid video extension
+{_B}  You write the full filename — no placeholders needed
+{_B}  No re-encoding — stream-copied as-is
 
-{_D}
-<i>Page 7 / 12</i>""",
+<code>.mp4  .mkv  .webm  .mov  .avi  .flv  .3gp</code>
+
+{_D}""",
 
 
-# ── Page 8 — /mi ──────────────────────────────────────────────────────────────
-f"""<b>&#9632; /mi  &#8212;  MediaInfo Report</b>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 7 — /rename -b (batch rename)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /rename -b  —  Batch Rename an Album</b>
 
-<blockquote>Generates a full technical report and publishes it to Telegraph.
-Only the first 3 MB (container header) is downloaded —
-fast even on multi-gigabyte files.</blockquote>
+<i>Reply to the first file of a Telegram album with /rename -b and a filename template. Files are renamed with auto-incremented episode numbers.</i>
 
 {_D}
 
-<b>Three ways to use it</b>
+<b>{_S} Usage</b>
+<code>/rename -b &lt;filename template.ext&gt;</code>
 
-<b>1.  Reply to a media file</b>
-<blockquote>Reply to any video, audio, or document with <code>/mi</code>.</blockquote>
+{_Ds}
 
-<b>2.  Pass a direct link</b>
-<blockquote><code>/mi https://example.com/video.mkv</code>
-URL is passed directly to MediaInfo — no server download.</blockquote>
+<b>{_S} Placeholders</b>
+<code>{{season}}</code>  — season  <i>(zero-padded, from /es)</i>
+<code>{{episode}}</code> — episode  <i>(auto-incremented)</i>
 
-<b>3.  Reply to a message containing a link</b>
-<blockquote>Reply to any message that has a URL.
-Bot extracts the first URL found and analyses it.</blockquote>
+Only these two are valid.
 
-<b>Report includes</b>
-<blockquote>{_B}  General  &#8212;  container, duration, bitrate, file size
-{_B}  Video    &#8212;  codec, resolution, FPS, bit depth, HDR
-{_B}  Audio    &#8212;  codec, channels, sample rate, language
-{_B}  Subtitle &#8212;  format and language (per track)
-{_B}  Menu     &#8212;  chapter markers (if present)</blockquote>
+{_Ds}
 
-<b>Output</b>
-<blockquote>A Telegraph link is sent in the chat.
-Publicly accessible and shareable.</blockquote>
+<b>{_S} Example</b>
+{_A} Album: 3 files · Season <code>01</code> · Start ep <code>01</code>
+<code>/rename -b [S{{season}}-E{{episode}}] Show.mkv</code>
+{_A} Output:
+  <code>[S01-E01] Show.mkv</code>
+  <code>[S01-E02] Show.mkv</code>
+  <code>[S01-E03] Show.mkv</code>
 
-{_D}
-<i>Page 8 / 12</i>""",
+{_Ds}
 
+<b>{_S} Notes</b>
+{_B}  Reply to the <u>first</u> file of the album
+{_B}  All files must be sent as one Telegram album
+{_B}  Season &amp; start episode set in <code>/es → Placeholders</code>
+{_B}  Non-video files are skipped automatically
 
-# ── Page 9 — /status ──────────────────────────────────────────────────────────
-f"""<b>&#9632; /status  &#8212;  Live Queue &amp; Stats</b>
-
-<blockquote>Shows all active and queued tasks in real time.
-Five tasks per page, with refresh and pagination controls.</blockquote>
-
-{_D}
-
-<b>Active task</b>
-<blockquote>The currently running task shows its live stage:
-  <code>Downloading</code>  &#8212;  fetching file from Telegram
-  <code>Encoding</code>     &#8212;  FFmpeg is processing  <i>(CPU-bound)</i>
-  <code>Uploading</code>    &#8212;  sending output to user&#39;s DM
-
-For multi-resolution tasks, the current job index
-and resolution are shown alongside the stage.</blockquote>
-
-<b>Queued tasks</b>
-<blockquote>Each waiting task shows:
-  {_B}  Output filename  &#183;  File size
-  {_B}  Resolution pipeline  e.g.  1080p {_A} 720p {_A} 480p
-  {_B}  Number of jobs  &#183;  User handle and Telegram ID
-  {_B}  Ready-to-use cancel shortcut:  <code>/cancel xxxxxxxx</code></blockquote>
-
-<b>Footer stats</b>
-<blockquote>CPU %  &#183;  RAM %  &#183;  Free disk  &#183;  Bot uptime</blockquote>
-
-<b>Buttons</b>
-<blockquote>&#11157;  Previous page    &#8635;  Refresh    &#11158;  Next page</blockquote>
-
-{_D}
-<i>Page 9 / 12</i>""",
+{_D}""",
 
 
-# ── Page 10 — /cancel ─────────────────────────────────────────────────────────
-f"""<b>&#9632; /cancel  &#8212;  Stop a Running Task</b>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 8 — /mi
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /mi  —  MediaInfo Report</b>
 
-<blockquote>Cancels a queued or actively processing task immediately.
-All temporary files for that task are cleaned up automatically.</blockquote>
+<i>Generates a detailed MediaInfo report and publishes it to a permanent Telegraph page.</i>
 
 {_D}
 
-<b>Syntax</b>
-<blockquote><code>/cancel &lt;task_id&gt;</code>
-A partial ID (first 8 chars) is accepted.</blockquote>
+<b>{_S} Usage</b>
+{_A}  Reply to a media file:  <code>/mi</code>
+{_A}  With a download link:   <code>/mi &lt;url&gt;</code>
+{_A}  Reply to a URL message: <code>/mi</code>
 
-<b>How to find the Task ID</b>
-<blockquote>1.  The bot replies with the Task ID when you queue any task.
-2.  Run <code>/status</code> — each task block shows a ready-to-use
-    cancel command at the bottom: <code>/cancel xxxxxxxx</code></blockquote>
+{_Ds}
 
-<b>Example</b>
-<blockquote><code>/cancel a3f9c1b2</code>
-Bot replies: <i>Task a3f9c1b2 cancelled.</i></blockquote>
+<b>{_S} Example Output</b>
+✅ MediaInfo ready!
+📄 File: <code>Movie.mkv</code>
+🔗 View: Telegraph page
 
-<b>What happens on cancel</b>
-<blockquote>{_B}  Running FFmpeg process is terminated immediately
-{_B}  In-progress download or upload is stopped
-{_B}  All temp files for that task are deleted from disk
-{_B}  User receives a cancellation message in their DM
-{_B}  The next queued task starts automatically</blockquote>
+{_Ds}
 
-<b>Permissions</b>
-<blockquote>Admins can cancel any task.
-Regular users can only cancel their own tasks.</blockquote>
+<b>{_S} Report Includes</b>
+{_B}  General  <i>(format, size, duration, bitrate)</i>
+{_B}  Video    <i>(codec, resolution, fps, colour)</i>
+{_B}  Audio    <i>(codec, channels, bitrate, language)</i>
+{_B}  Subtitles &amp; chapters if present
 
-{_D}
-<i>Page 10 / 12</i>""",
+{_Ds}
 
+<b>{_S} Notes</b>
+{_B}  Only first ~3 MB downloaded for analysis
+{_B}  Works on remote URLs — no upload needed
+{_B}  Telegraph link is permanent and shareable
 
-# ── Page 11 — General notes ───────────────────────────────────────────────────
-f"""<b>&#9633; Things to Keep in Mind</b>
-
-{_D}
-
-<b>&#9112; Setup first</b>
-<blockquote>Configure /es before your first task.  Settings persist between
-sessions — do it once, update only when you want to change something.
-For /be and /br, set a filename template via /es &#8594; Filename Format.</blockquote>
-
-<b>&#9112; Start the bot in DM</b>
-<blockquote>All files are delivered to your <b>private DM</b>, not the group.
-Open a private chat with the bot and press Start before queuing —
-otherwise uploads will fail.</blockquote>
-
-<b>&#9112; Filename rules</b>
-<blockquote>{_B}  <code>{{quality}}</code> is required in /encode filenames
-{_B}  <code>{{quality}}</code> is NOT used in /rename (no placeholder needed)
-{_B}  /be and /br use the template set via /es &#8594; Filename Format
-{_B}  Always use a valid video extension (.mp4, .mkv, etc.)</blockquote>
-
-<b>&#9112; HDRip is a passthrough</b>
-<blockquote>HDRip = stream-copy + metadata only.  No re-encode, no resize.
-Use it to preserve the source quality exactly as-is.</blockquote>
-
-<b>&#9112; Queue</b>
-<blockquote>One task at a time.  Multiple users can queue tasks — they run
-in order of submission.  Use /status to check your position.</blockquote>
-
-{_D}
-<i>Page 11 / 12</i>""",
+{_D}""",
 
 
-# ── Page 12 — Troubleshooting ─────────────────────────────────────────────────
-f"""<b>&#9633; Troubleshooting</b>
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 9 — /status
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /status  —  Live Queue &amp; Stats</b>
+
+<i>Shows all active tasks with real-time progress. Auto-refreshes every 15 seconds.</i>
 
 {_D}
 
-<b>&#9632; Upload fails: "start the bot in DM first"</b>
-<blockquote>Open a private chat with the bot and press Start,
-then re-queue your task.</blockquote>
+<b>{_S} Usage</b>
+<code>/status</code>  or  <code>/s</code>
 
-<b>&#9632; Encoding fails with an FFmpeg error</b>
-<blockquote>{_B}  Source file is corrupted or truncated
-{_B}  Unsupported container (check extension list)
-{_B}  Server disk full — check the disk line in /status</blockquote>
+{_Ds}
 
-<b>&#9632; Watermark font not applying</b>
-<blockquote>Some TTF files are rejected by FFmpeg's drawtext filter.
-Fix: use a plain static-weight TTF from Google Fonts.
-Upload via /es {_A} Watermark {_A} Font.</blockquote>
+<b>{_S} Example</b>
+<b>Task 1</b>
+┃ File: <code>Movie [1080p].mkv</code>
+┃ Size: 2.4 GB
+┠ Resolution : <u>1080p</u>  ||  720p
+┠ Status : Encoding  <i>(Job 1/2)</i>
+┠ [████████░░░░░░░░░] 48.3%
+┠ Elapsed: 4m 12s
+┖ /cancel <code>a1b2c3d4</code>
 
-<b>&#9632; HDRip still shows original resolution</b>
-<blockquote>Expected — HDRip is stream-copy, resolution never changes.
-Pick 1080p / 720p / 480p if you need a resize.</blockquote>
+{_Ds}
 
-<b>&#9632; Watermark timing is wrong</b>
-<blockquote><code>full</code> &#8212; entire video  &#183;  <code>range</code> &#8212; fixed start + end seconds
-<code>random</code> &#8212; set duration, start is chosen randomly
-End &#8804; start in range mode defaults to full duration.</blockquote>
+<b>{_S} Fields</b>
+<b>Resolution</b> — underlined = currently active
+<b>Progress</b>   — bar + percentage
+<b>Speed/ETA</b>  — shown during download &amp; upload
+<b>Bot Stats</b>  — CPU · RAM · Disk · Uptime
 
-<b>&#9632; Task frozen on Downloading</b>
-<blockquote>Large files take time.  If no progress for 30+ min,
-cancel and re-queue.</blockquote>
+{_Ds}
+
+<b>{_S} Notes</b>
+{_B}  Auto-refreshes every 15 s
+{_B}  One status message per group at a time
+{_B}  Use <code>/cancel &lt;id&gt;</code> from task block to cancel
+
+{_D}""",
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 10 — /cancel
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /cancel  —  Cancel a Task</b>
+
+<i>Stops a running or queued task. Temporary files are cleaned up automatically.</i>
 
 {_D}
-<i>Page 12 / 12  &#8212;  end of guide</i>""",
+
+<b>{_S} Usage</b>
+<code>/cancel &lt;task_id&gt;</code>  or  <code>/c &lt;task_id&gt;</code>
+
+{_Ds}
+
+<b>{_S} Finding the Task ID</b>
+Run <code>/status</code> — task ID shown at bottom of each block.
+
+{_A} Example:  <code>┖ /cancel a1b2c3d4</code>
+
+Only the first few characters are needed.
+
+{_Ds}
+
+<b>{_S} Example</b>
+{_A} Input:  <code>/cancel a1b2</code>
+{_A} Output: ✅ Task <code>a1b2</code> cancelled.
+
+{_Ds}
+
+<b>{_S} Notes</b>
+{_B}  You can only cancel your own tasks
+{_B}  Admins can cancel any task
+{_B}  Works at any stage: queued → uploading
+{_B}  Temp files deleted on cancellation
+{_B}  Check <code>/status</code> if task ID not found
+
+{_D}""",
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 11 — Tips & Best Practices
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} Tips &amp; Best Practices</b>
+
+{_D}
+
+<b>{_S} Before Encoding</b>
+{_B}  Configure <code>/es</code> first
+{_B}  Select only the resolutions you need
+{_B}  Set metadata once — applies to all tasks
+{_B}  Upload thumbnail once — reused every time
+
+{_Ds}
+
+<b>{_S} Choosing Settings</b>
+<b>Archival:</b>  CRF 18–20 · slow · libx265
+<b>Streaming:</b> CRF 23–26 · medium · libx264
+<b>Fast:</b>      CRF 26–28 · fast · libx264
+<b>Lossless:</b>  Use <code>HDRip</code>
+
+{_Ds}
+
+<b>{_S} Watermark Tips</b>
+{_B}  <code>range</code> mode — watermark the intro only
+{_B}  <code>random</code> mode — anti-piracy overlays
+{_B}  Use TTF/OTF fonts from Google Fonts
+
+{_Ds}
+
+<b>{_S} Queue &amp; Batch Tips</b>
+{_B}  Tasks run one at a time in order
+{_B}  Use <code>/status</code> to monitor position and ETA
+{_B}  For batch, reply to the <u>first</u> file of the album
+{_B}  Test template with a single rename first
+
+{_D}""",
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 12 — Do's and Don'ts
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} Do's and Don'ts</b>
+
+{_D}
+
+<b>◆ Do</b>
+✦  Run <code>/es</code> before queuing any task
+✦  Always include <code>-t Title</code> in <code>/encode</code>
+✦  Use <code>-b</code> flag for batch encode/rename on albums
+✦  Reply to the <u>first</u> file of the album for batch
+✦  Set season, episode &amp; audio in <code>/es → Placeholders</code>
+✦  Start the bot in DM before using in a group
+
+{_D}
+
+<b>◇ Don't</b>
+✦  Don't forget <code>-t</code> — it's required for <code>/encode</code>
+✦  Don't use unsupported placeholders in <code>/rename -b</code>
+✦  Don't send batch files as separate messages
+✦  Don't queue without configuring settings first
+✦  Don't select HDRip if you need a re-encode
+
+{_D}
+
+<b>{_S} Quick Reminders</b>
+{_B}  Lower CRF = better quality, larger file
+{_B}  <code>libx265</code> compresses better than <code>libx264</code>
+{_B}  Use <code>/mi</code> to inspect files before encoding
+{_B}  Premium accounts support uploads up to ~4 GB
+
+{_D}""",
 
 ]
 
 TOTAL_PAGES = len(PAGES)
 
 
-# ── Keyboard builders ─────────────────────────────────────────────────────────
+# ── Sanity-check all pages at import time ──────────────────────────────────────
+
+for _i, _p in enumerate(PAGES):
+    _l = len(_p)
+    if _l > 1024:
+        import warnings
+        warnings.warn(f"[start.py] Page {_i + 1} exceeds 1024 chars ({_l})", stacklevel=2)
+
+
+# ── Keyboard builders ──────────────────────────────────────────────────────────
 
 def _start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Developer", url="https://t.me/Renzo"),
-            InlineKeyboardButton("Guide",     callback_data="help_open:0"),
+            InlineKeyboardButton("Developer", url="https://t.me/renzobot"),
+            InlineKeyboardButton("Guide ⮞",  callback_data="help_open:0"),
         ],
         [
-            InlineKeyboardButton("Close",     callback_data="start_close"),
+            InlineKeyboardButton("Close",  callback_data="start_close"),
         ],
     ])
 
@@ -521,7 +549,7 @@ def _help_keyboard(page: int) -> InlineKeyboardMarkup:
     ])
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# ── Internal helpers ───────────────────────────────────────────────────────────
 
 async def _edit_message(msg, text: str, kb: InlineKeyboardMarkup):
     try:
@@ -568,8 +596,9 @@ async def _show_start(message: Message, config: Config, edit: bool = False):
     except Exception as e:
         print(f"[Start] send failed: {e}")
         await message.reply_text(
-            f"Welcome {message.from_user.first_name}!  Tap Guide for all commands.",
+            f"Welcome {message.from_user.first_name}!  Tap <b>Guide ⮞</b> for all commands.",
             reply_markup=kb,
+            parse_mode=enums.ParseMode.HTML,
         )
 
 
@@ -591,7 +620,7 @@ async def _show_help(message: Message, page: int, config: Config, edit: bool = F
             )
             return
         except Exception as e:
-            print(f"[Help] photo send failed, falling back: {e}")
+            print(f"[Help] photo send failed, falling back to text: {e}")
 
     await message.reply_text(
         text=text,
@@ -601,15 +630,18 @@ async def _show_help(message: Message, page: int, config: Config, edit: bool = F
     )
 
 
-# ── Handler registration ──────────────────────────────────────────────────────
+# ── Handler registration ───────────────────────────────────────────────────────
 
 def setup_start_handler(app, config: Config):
 
-    @app.on_message(filters.command(["start", "help"]) & (filters.private | filters.chat(config.allowed_group_ids)))
+    @app.on_message(
+        filters.command(["start", "help"])
+        & (filters.private | filters.chat(config.allowed_group_ids))
+    )
     async def start_handler(client, message: Message):
         await _show_start(message, config)
 
-    # Guide button on /start screen ───────────────────────────────────────────
+    # Guide button on /start screen ────────────────────────────────────────────
     @app.on_callback_query(filters.regex(r"^help_open:(\d+)$"))
     async def help_open_callback(client, callback_query: CallbackQuery):
         page = int(callback_query.data.split(":")[1])
@@ -617,7 +649,7 @@ def setup_start_handler(app, config: Config):
         await _show_help(callback_query.message, page=page, config=config, edit=True)
         await callback_query.answer()
 
-    # Pagination inside guide ─────────────────────────────────────────────────
+    # Pagination inside guide ──────────────────────────────────────────────────
     @app.on_callback_query(filters.regex(r"^help_page:(\d+)$"))
     async def help_page_callback(client, callback_query: CallbackQuery):
         page = int(callback_query.data.split(":")[1])
@@ -625,13 +657,13 @@ def setup_start_handler(app, config: Config):
         await _show_help(callback_query.message, page=page, config=config, edit=True)
         await callback_query.answer()
 
-    # Back → /start screen ────────────────────────────────────────────────────
+    # Back → /start screen ─────────────────────────────────────────────────────
     @app.on_callback_query(filters.regex(r"^help_back$"))
     async def help_back_callback(client, callback_query: CallbackQuery):
         await _show_start(callback_query.message, config=config, edit=True)
         await callback_query.answer()
 
-    # Close → delete the message ──────────────────────────────────────────────
+    # Close → delete the message ───────────────────────────────────────────────
     @app.on_callback_query(filters.regex(r"^start_close$"))
     async def start_close_callback(client, callback_query: CallbackQuery):
         try:
@@ -641,7 +673,7 @@ def setup_start_handler(app, config: Config):
             return
         await callback_query.answer()
 
-    # Page counter button (no-op) ─────────────────────────────────────────────
+    # Page counter button (no-op) ──────────────────────────────────────────────
     @app.on_callback_query(filters.regex(r"^help_noop$"))
     async def help_noop(client, callback_query: CallbackQuery):
         await callback_query.answer()
