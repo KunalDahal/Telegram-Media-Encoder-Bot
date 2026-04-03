@@ -63,6 +63,9 @@ def _extract_font_name(font_path: str) -> str:
 
 
 class UserSettings:
+    # Shared across all instances — survives re-instantiation per request
+    _temp_state: Dict[int, Dict] = {}
+
     def __init__(self, user_id: int, paths=None):
         self.user_id = user_id
         if paths is not None:
@@ -80,8 +83,11 @@ class UserSettings:
 
         self.storage_path = os.path.join(self.db_folder, f"{self.user_id}.json")
         self.data: Dict[str, Any] = {}
-        self.temp_state: Dict[int, Dict] = {}
         self._load()
+
+    @property
+    def temp_state(self) -> Dict[int, Dict]:
+        return UserSettings._temp_state
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -113,6 +119,12 @@ class UserSettings:
                     self.data["watermark"][key] = val
         if "format" not in self.data:
             self.data["format"] = "{title} S{season}E{episode} [{quality}] [{audio}].mkv"
+        if "default_start_episode" not in self.data:
+            self.data["default_start_episode"] = 1
+        if "default_season" not in self.data:
+            self.data["default_season"] = 1
+        if "default_audio" not in self.data:
+            self.data["default_audio"] = "SUB"
 
         self.data["resolutions"] = self._normalize_resolutions(
             self.data.get("resolutions", self.data.get("resolution"))
@@ -132,19 +144,22 @@ class UserSettings:
 
     def _get_default_settings(self) -> Dict[str, Any]:
         return {
-            "user_id":        self.user_id,
-            "resolutions":    ["1080p"],
-            "resolution":     "1080p",
-            "crf":            28,
-            "preset":         "medium",
-            "codec":          "libx264",
-            "audio_bitrate":  "128k",
-            "send_type":      "media",
-            "metadata":       {"title": "", "author": "", "encoder": ""},
-            "thumbnail_path": "",
-            "profiles":       {res: p.copy() for res, p in DEFAULT_PROFILES.items()},
-            "watermark":      DEFAULT_WATERMARK.copy(),
-            "format":         "{title} S{season}E{episode} [{quality}] [{audio}].mkv",
+            "user_id":              self.user_id,
+            "resolutions":          ["1080p"],
+            "resolution":           "1080p",
+            "crf":                  28,
+            "preset":               "medium",
+            "codec":                "libx264",
+            "audio_bitrate":        "128k",
+            "send_type":            "media",
+            "metadata":             {"title": "", "author": "", "encoder": ""},
+            "thumbnail_path":       "",
+            "profiles":             {res: p.copy() for res, p in DEFAULT_PROFILES.items()},
+            "watermark":            DEFAULT_WATERMARK.copy(),
+            "format":               "{title} S{season}E{episode} [{quality}] [{audio}].mkv",
+            "default_start_episode": 1,
+            "default_season":        1,
+            "default_audio":         "SUB",
         }
 
     def _normalize_resolutions(self, values) -> list:
@@ -222,9 +237,10 @@ class UserSettings:
         if key == "resolution":
             self.set_resolutions([value])
             return
-        if key in self.data:
-            self.data[key] = value
-            self._save()
+        # Allow writing any non-internal key, not just pre-existing ones.
+        # This covers dynamic keys like default_start_episode / default_season / default_audio.
+        self.data[key] = value
+        self._save()
 
     def set_resolutions(self, resolutions):
         self.data["resolutions"] = self._normalize_resolutions(resolutions)

@@ -8,8 +8,6 @@ class Downloader:
         self.temp_base  = temp_base
         self.task_queue = task_queue
         self.task_id    = task_id
-        self._last_time  = None
-        self._last_bytes = 0
         self._start_time = None
 
         os.makedirs(self.temp_base, exist_ok=True)
@@ -29,6 +27,7 @@ class Downloader:
         file_id            = task_data["file_id"]
         original_file_name = task_data.get("original_file_name") or f"video_{task_id}.mkv"
         self.task_id       = task_id
+        self._declared_size = task_data.get("file_size") or 0
 
         task_folder  = os.path.join(self.temp_base, task_id)
         os.makedirs(task_folder, exist_ok=True)
@@ -95,39 +94,30 @@ class Downloader:
     async def _progress_callback(self, current: int, total: int):
         now = time.time()
 
+        if not total:
+            total = getattr(self, "_declared_size", 0)
+
         if self.download_progress["total_size"] == 0 and total:
             self.download_progress["total_size"] = total
-
-        if self._last_time is None:
-            self._last_time  = now
-            self._last_bytes = current
-            return
-
-        elapsed_interval = now - self._last_time
-        speed = (current - self._last_bytes) / elapsed_interval if elapsed_interval > 0 else 0
-
-        self._last_time  = now
-        self._last_bytes = current
+        elapsed = max(time.time() - self._start_time, 1) if self._start_time else 1
+        speed   = current / elapsed
 
         percentage    = (current / total * 100) if total > 0 else 0
-        eta           = ((total - current) / speed) if speed > 0 else 0
-        total_elapsed = (now - self._start_time) if self._start_time else 0
+        eta           = int((total - current) / speed) if speed > 0 and total > current else 0
+        total_elapsed = int(time.time() - self._start_time) if self._start_time else 0
 
         self.download_progress.update({
             "downloaded": current,
             "percentage": round(percentage, 2),
             "speed":      round(speed, 2),
-            "eta":        int(eta),
-            "elapsed":    int(total_elapsed),
+            "eta":        eta,
+            "elapsed":    total_elapsed,
             "status":     "downloading",
         })
 
         if self.task_queue and self.task_id:
-            # Update the scalar progress field (used as fallback)
             self.task_queue.update_status(self.task_id, "downloading", round(percentage, 2))
 
-            # ── Write full progress details into the task dict ────────────────
-            # status.py reads task["progress_details"] to show speed / ETA.
             task = self.task_queue.tasks.get(self.task_id)
             if task is not None:
                 task["progress_details"] = {
@@ -135,7 +125,7 @@ class Downloader:
                     "downloaded": current,
                     "percentage": round(percentage, 2),
                     "speed":      round(speed, 2),
-                    "eta":        int(eta),
+                    "eta":        eta,
                 }
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -150,9 +140,8 @@ class Downloader:
             "elapsed":    0,
             "status":     "idle",
         }
-        self._last_time  = None
-        self._last_bytes = 0
-        self._start_time = None
+        self._start_time    = None
+        self._declared_size = getattr(self, "_declared_size", 0)
 
     def get_progress(self) -> dict:
         return self.download_progress.copy()
