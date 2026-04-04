@@ -430,8 +430,6 @@ class FFmpeg:
             return False, f"Output file not created: {output_file}"
         if os.path.getsize(output_file) == 0:
             return False, f"Output file is empty: {output_file}"
-
-        # Signal completion
         try:
             await progress_cb(100.0)
         except Exception:

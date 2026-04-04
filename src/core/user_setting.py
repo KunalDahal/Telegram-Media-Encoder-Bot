@@ -41,6 +41,25 @@ VALID_WM_POSITIONS = {
     "bot_left", "bot_right",
 }
 
+DEFAULT_MI_PARAMS: dict = {
+    "audio_offset":    0.0,    
+    "subtitle_offset": 0.0,  
+    "audio_async":     1,      
+    "audio_tempo":     1.0,    
+    "video_fps":       "source",   
+    "video_vsync":     "cfr",      
+    "video_pts":       "PTS-STARTPTS",   
+    "audio_pts":       "PTS-STARTPTS",   
+    "audio_pad":       False,
+    "video_pad":       False,
+    "shortest":        True, 
+    "fix_sub_duration": True, 
+    "generate_pts":     True, 
+    "ignore_dts":       False,
+    "copy_timestamps":  False,
+    "start_at_zero":    False,
+}
+
 
 def _extract_font_name(font_path: str) -> str:
     try:
@@ -63,7 +82,6 @@ def _extract_font_name(font_path: str) -> str:
 
 
 class UserSettings:
-    # Shared across all instances — survives re-instantiation per request
     _temp_state: Dict[int, Dict] = {}
 
     def __init__(self, user_id: int, paths=None):
@@ -88,8 +106,6 @@ class UserSettings:
     @property
     def temp_state(self) -> Dict[int, Dict]:
         return UserSettings._temp_state
-
-    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _load(self):
         if os.path.exists(self.storage_path):
@@ -126,6 +142,13 @@ class UserSettings:
         if "default_audio" not in self.data:
             self.data["default_audio"] = "SUB"
 
+        if "params" not in self.data:
+            self.data["params"] = DEFAULT_MI_PARAMS.copy()
+        else:
+            for key, val in DEFAULT_MI_PARAMS.items():
+                if key not in self.data["params"]:
+                    self.data["params"][key] = val
+
         self.data["resolutions"] = self._normalize_resolutions(
             self.data.get("resolutions", self.data.get("resolution"))
         )
@@ -160,6 +183,7 @@ class UserSettings:
             "default_start_episode": 1,
             "default_season":        1,
             "default_audio":         "SUB",
+            "params":                DEFAULT_MI_PARAMS.copy(),
         }
 
     def _normalize_resolutions(self, values) -> list:
@@ -175,8 +199,6 @@ class UserSettings:
             if clean and clean not in normalized:
                 normalized.append(clean)
         return normalized[:4] if normalized else ["1080p"]
-
-    # ── Public getters ────────────────────────────────────────────────────────
 
     def get(self) -> Dict[str, Any]:
         return self.data
@@ -231,14 +253,10 @@ class UserSettings:
             effective.update(base_overrides)
         return effective
 
-    # ── Public mutators ───────────────────────────────────────────────────────
-
     def update(self, key: str, value: Any):
         if key == "resolution":
             self.set_resolutions([value])
             return
-        # Allow writing any non-internal key, not just pre-existing ones.
-        # This covers dynamic keys like default_start_episode / default_season / default_audio.
         self.data[key] = value
         self._save()
 
@@ -355,6 +373,28 @@ class UserSettings:
                     pass
             self.data["thumbnail_path"] = persistent_path
             self._save()
+
+    def get_params(self) -> Dict[str, Any]:
+        if "params" not in self.data:
+            self.data["params"] = DEFAULT_MI_PARAMS.copy()
+        else:
+            for key, val in DEFAULT_MI_PARAMS.items():
+                if key not in self.data["params"]:
+                    self.data["params"][key] = val
+        return self.data["params"]
+
+    def update_param(self, key: str, value: Any) -> bool:
+        if key not in DEFAULT_MI_PARAMS:
+            return False
+        params = self.get_params()
+        params[key] = value
+        self.data["params"] = params
+        self._save()
+        return True
+
+    def reset_params(self):
+        self.data["params"] = DEFAULT_MI_PARAMS.copy()
+        self._save()
 
     def reset(self):
         self.data = self._get_default_settings()

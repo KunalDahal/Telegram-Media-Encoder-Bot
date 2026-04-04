@@ -146,7 +146,7 @@ class Worker:
             print(f"[Worker] Download failed for {task_id}: {e}")
             await self.notify_user(
                 task["user_id"],
-                f"❌ Task `{task_id[:8]}` failed.\nError: {str(e)[:200]}",
+                f"Task `{task_id[:8]}` failed.\nError: {str(e)[:200]}",
             )
             self.task_queue.remove_task(task_id)
             self._cleanup_task_folder(task_id)
@@ -256,7 +256,7 @@ class Worker:
             print(f"[Worker] Task {task_id} failed: {e}")
             await self.notify_user(
                 task["user_id"],
-                f"❌ Task `{task_id[:8]}` failed.\nError: {str(e)[:200]}",
+                f"Task `{task_id[:8]}` failed.\nError: {str(e)[:200]}",
             )
             self.task_queue.remove_task(task_id)
 

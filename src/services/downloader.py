@@ -1,8 +1,6 @@
 import os
 import asyncio
 import time
-
-
 class Downloader:
     def __init__(self, temp_base: str, task_queue=None, task_id=None):
         self.temp_base  = temp_base
@@ -66,8 +64,6 @@ class Downloader:
 
             print(f"[Downloader] Done: {actual_path} ({os.path.getsize(actual_path):,} bytes)")
             self.download_progress["status"] = "completed"
-
-            # ── Final 100% write-back ─────────────────────────────────────────
             if self.task_queue and self.task_id:
                 self.task_queue.update_status(self.task_id, "downloading", 100)
                 task = self.task_queue.tasks.get(self.task_id)

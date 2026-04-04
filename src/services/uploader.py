@@ -4,11 +4,8 @@ import os
 import shutil
 import time
 
-# ── Telegram file-size limits ─────────────────────────────────────────────────
 MAX_NON_PREMIUM_BYTES: int = int(1.95 * 1024 ** 3)   # 2 093 796 352
 MAX_PREMIUM_BYTES:     int = int(3.95 * 1024 ** 3)   # 4 240 076 800
-
-
 class Uploader:
     def __init__(
         self,
@@ -391,7 +388,7 @@ class Uploader:
                 idx += 1
 
                 if written < max_bytes:
-                    break  # Last chunk was smaller → done
+                    break
 
         return parts
 

@@ -14,8 +14,6 @@ class TaskQueue:
         self.processing    = False
         self.current_task  = None
 
-    # ── Creation / retrieval ──────────────────────────────────────────────────
-
     def create_task(self, task_data: dict) -> str:
         task_id = str(uuid.uuid4())[:8]
         now     = datetime.utcnow().isoformat()
@@ -35,8 +33,6 @@ class TaskQueue:
     def get_task(self, task_id: str) -> dict | None:
         return self.tasks.get(task_id)
 
-    # ── Status updates ────────────────────────────────────────────────────────
-
     def update_status(self, task_id: str, status: str, progress: int = None):
         task = self.tasks.get(task_id)
         if task is None:
@@ -54,8 +50,6 @@ class TaskQueue:
             t.get("status") in _ACTIVE_STATUSES - {"queued"}
             for t in self.tasks.values()
         )
-
-    # ── Queue navigation ──────────────────────────────────────────────────────
 
     def get_next_task(self) -> dict | None:
         for task_id in self.queue:
@@ -87,8 +81,6 @@ class TaskQueue:
             t.get("status") in _ACTIVE_STATUSES - {"queued"}
             for t in self.tasks.values()
         )
-
-    # ── Legacy helpers (kept for external compatibility) ──────────────────────
 
     def is_processing(self) -> bool:
         return self.processing

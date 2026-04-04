@@ -40,10 +40,6 @@ class MediaInfoHelper:
 
     async def download_partial(self, client, media, save_path: str,
                                max_bytes: int = 3 * 1024 * 1024):
-        """
-        Download only the first `max_bytes` of a Telegram media file.
-        3 MB covers the container header of virtually any format.
-        """
         file_size = getattr(media, "file_size", None)
 
         if file_size and file_size <= max_bytes:
@@ -98,8 +94,6 @@ class MediaInfoHelper:
                 continue
 
             val_str = str(value)
-
-            # snake_case → human label (mirrors real mediainfo CLI output)
             label = (
                 attr
                 .replace("_", " ")
@@ -118,7 +112,6 @@ class MediaInfoHelper:
                 .replace("Mkv",  "MKV")
             )
 
-            # Align to 40 chars like real mediainfo
             padded = f"{label:<40}: {val_str}"
             safe   = (
                 padded
@@ -156,10 +149,6 @@ class MediaInfoHelper:
     # ── Public entry point ────────────────────────────────────────────────────
 
     async def generate_mediainfo(self, target: str, filename: str):
-        """
-        `target` — local file path OR a direct URL.
-        Returns (telegraph_url, error_string).
-        """
         try:
             media_info = await self.run_mediainfo(target)
 

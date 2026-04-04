@@ -352,14 +352,10 @@ async def process_batch_encode(
     episode  = resolved["episode"]
     audio    = resolved["audio"]
     title    = resolved["title"]
-
-    # Quality: -q override or all saved resolutions
     if args["quality"]:
         selected_resolutions = [args["quality"]]
     else:
         selected_resolutions = get_selected_resolutions(settings)
-
-    # Fetch media group
     status_msg  = await message.reply_text("⏳ Fetching media group…")
     media_group = await fetch_media_group(client, message.chat.id, replied)
 
@@ -369,8 +365,6 @@ async def process_batch_encode(
             "Make sure you replied to the first file of the group."
         )
         return
-
-    # Filter to valid video files only
     valid_files = []
     skipped     = 0
     for m in media_group:
