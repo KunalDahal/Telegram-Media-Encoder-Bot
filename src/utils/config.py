@@ -6,24 +6,13 @@ from dotenv import load_dotenv
 
 
 def _find_binary(name: str, local_dir: str) -> str:
-    """
-    Resolve a binary path in priority order:
-      1. System PATH  (works if ffmpeg is installed anywhere on the machine)
-      2. Local bin/   folder next to the project (with .exe on Windows)
-      3. Bare name    (last resort — will surface a clean error at runtime)
-    """
-    # 1. PATH look-up — covers "ffmpeg is elsewhere on my system"
     found = shutil.which(name)
     if found:
         return found
-
-    # 2. Local bin/ folder — covers a bundled binary shipped with the bot
     exe_suffix = ".exe" if sys.platform == "win32" else ""
     local_path = os.path.join(local_dir, f"{name}{exe_suffix}")
     if os.path.isfile(local_path):
         return local_path
-
-    # 3. Give back the bare name so FFmpeg.__init__ can surface a clear error
     return name
 
 
