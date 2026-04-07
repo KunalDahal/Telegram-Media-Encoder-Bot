@@ -66,12 +66,14 @@ def parse_encode_args(command_text: str):
     season = None
     m = re.search(r"(?:^|\s)-s\s+(\d+)", pre_t)
     if m:
-        season = int(m.group(1))
+        season = m.group(1)          # raw string — preserves leading zeros
+        if int(season) < 1:
+            return None, "Season number must be ≥ 1."
     episode = None
     m = re.search(r"(?:^|\s)-e\s+(\d+)", pre_t)
     if m:
-        episode = int(m.group(1))
-        if episode < 1:
+        episode = m.group(1)         # raw string — preserves leading zeros
+        if int(episode) < 1:
             return None, "Episode number must be ≥ 1."
     audio = None
     m = re.search(r"(?:^|\s)-a\s+(\S+)", pre_t)
@@ -125,12 +127,12 @@ def validate_user_format(format_string: str):
     return True, None
 
 
-def build_encode_filename(format_string: str, title: str, season: int,
-                          episode: int, audio: str) -> str:
+def build_encode_filename(format_string: str, title: str, season: str,
+                          episode: str, audio: str) -> str:
     filename = format_string
     filename = filename.replace("{title}",   title or "")
-    filename = filename.replace("{season}",  f"{season:02d}")
-    filename = filename.replace("{episode}", f"{episode:02d}")
+    filename = filename.replace("{season}",  season)
+    filename = filename.replace("{episode}", episode)
     audio = audio or ""
     if audio:
         filename = filename.replace("{audio}", audio)
@@ -209,8 +211,8 @@ async def fetch_media_group(client: Client, chat_id: int, replied: Message) -> l
 
 def resolve_encode_values(args: dict, settings: dict) -> dict:
     return {
-        "season":  args["season"]  if args["season"]  is not None else settings.get("default_season", 1),
-        "episode": args["episode"] if args["episode"] is not None else settings.get("default_start_episode", 1),
+        "season":  args["season"]  if args["season"]  is not None else str(settings.get("default_season",         "1")),
+        "episode": args["episode"] if args["episode"] is not None else str(settings.get("default_start_episode",  "1")),
         "audio":   args["audio"]   if args["audio"]   is not None else settings.get("default_audio", ""),
         "title":   args["title"],
     }
@@ -348,10 +350,15 @@ async def process_batch_encode(
         return
 
     resolved = resolve_encode_values(args, settings)
-    season   = resolved["season"]
-    episode  = resolved["episode"]
+    season   = resolved["season"]    # string, e.g. "01"
+    episode  = resolved["episode"]   # string, e.g. "01"
     audio    = resolved["audio"]
     title    = resolved["title"]
+
+    ep_width   = len(episode)
+    ep_int     = int(episode)
+    season_str = season              # already a formatted string
+
     if args["quality"]:
         selected_resolutions = [args["quality"]]
     else:
@@ -388,18 +395,18 @@ async def process_batch_encode(
 
     base_metadata = settings.get("metadata", {})
     created_at    = datetime.utcnow().isoformat()
-    season_str    = f"{season:02d}"
 
     task_ids  = []
     positions = []
-    episodes  = []
+    episodes  = []    # stores raw int values for summary range display
 
     for index, media_msg in enumerate(valid_files):
-        ep      = episode + index
-        episodes.append(ep)
+        ep_num = ep_int + index
+        ep_str = str(ep_num).zfill(ep_width)
+        episodes.append(ep_num)
 
         filename_template = build_encode_filename(
-            format_string, title, season, ep, audio
+            format_string, title, season_str, ep_str, audio
         )
 
         if media_msg.video:
@@ -450,8 +457,8 @@ async def process_batch_encode(
         task_ids.append(task_id)
         positions.append(position)
 
-    ep_start = f"{episodes[0]:02d}"
-    ep_end   = f"{episodes[-1]:02d}"
+    ep_start = str(episodes[0]).zfill(ep_width)
+    ep_end   = str(episodes[-1]).zfill(ep_width)
     pos_min  = min(positions)
     pos_max  = max(positions)
     pos_text = f"[{pos_min}]" if pos_min == pos_max else f"[{pos_min} – {pos_max}]"

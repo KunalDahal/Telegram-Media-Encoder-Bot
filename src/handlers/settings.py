@@ -1430,50 +1430,46 @@ def setup_settings_handlers(app: Client, user_settings, config):
         # ── Placeholder text inputs ───────────────────────────────────────────
 
         elif state == "waiting_placeholder_episode":
-            try:
-                ep = int(message.text.strip())
-                if ep < 1:
-                    raise ValueError
-                us.update("default_start_episode", ep)
-                del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
-                settings = us.get()
-                await client.send_message(
-                    user_id,
-                    build_placeholders_text(settings, f"Start episode set to {ep} ✓"),
-                    reply_markup=build_placeholders_keyboard(),
-                    parse_mode=ParseMode.HTML
-                )
-            except ValueError:
+            raw = message.text.strip()
+            if not raw.isdigit() or int(raw) < 1:
                 await message.reply_text(
                     "Please send a valid episode number ≥ 1.", parse_mode=ParseMode.HTML
                 )
+                return
+            us.update("default_start_episode", raw)
+            del us.temp_state[user_id]
+            try:
+                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
+            except Exception:
+                pass
+            settings = us.get()
+            await client.send_message(
+                user_id,
+                build_placeholders_text(settings, f"Start episode set to {raw} ✓"),
+                reply_markup=build_placeholders_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
 
         elif state == "waiting_placeholder_season":
-            try:
-                season = int(message.text.strip())
-                if season < 1:
-                    raise ValueError
-                us.update("default_season", season)
-                del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
-                settings = us.get()
-                await client.send_message(
-                    user_id,
-                    build_placeholders_text(settings, f"Season set to {season} ✓"),
-                    reply_markup=build_placeholders_keyboard(),
-                    parse_mode=ParseMode.HTML
-                )
-            except ValueError:
+            raw = message.text.strip()
+            if not raw.isdigit() or int(raw) < 1:
                 await message.reply_text(
                     "Please send a valid season number ≥ 1.", parse_mode=ParseMode.HTML
                 )
+                return
+            us.update("default_season", raw)
+            del us.temp_state[user_id]
+            try:
+                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
+            except Exception:
+                pass
+            settings = us.get()
+            await client.send_message(
+                user_id,
+                build_placeholders_text(settings, f"Season set to {raw} ✓"),
+                reply_markup=build_placeholders_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
 
         elif state == "waiting_placeholder_audio":
             audio_val = message.text.strip().upper()

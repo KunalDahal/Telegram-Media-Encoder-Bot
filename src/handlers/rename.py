@@ -130,10 +130,16 @@ def _validate_batch_template(template: str):
     return True, None
 
 
-def _resolve_template(template: str, season: int, episode: int) -> str:
+def _resolve_template(template: str, season_str: str, ep_str: str) -> str:
+    """Replace {season} and {episode} with pre-formatted strings.
+
+    The caller is responsible for zero-padding to the correct width so that
+    the total digit count matches the user's placeholder (e.g. ``01`` → always
+    two digits, ``001`` → always three digits, etc.).
+    """
     filename = template
-    filename = filename.replace("{season}",  f"{season:02d}")
-    filename = filename.replace("{episode}", f"{episode:02d}")
+    filename = filename.replace("{season}",  season_str)
+    filename = filename.replace("{episode}", ep_str)
     return filename
 
 
@@ -296,8 +302,18 @@ async def _process_batch_rename(
     settings     = copy.deepcopy(settings_obj.get())
     watermark    = settings_obj.get_watermark()
 
-    season        = int(settings.get("default_season",        1))
-    start_episode = int(settings.get("default_start_episode", 1))
+    # Read as raw strings to preserve leading-zero width chosen by the user.
+    # e.g. "1" → width 1 (no padding), "01" → width 2, "001" → width 3, …
+    season_raw  = str(settings.get("default_season",        "1"))
+    episode_raw = str(settings.get("default_start_episode", "1"))
+
+    season_width = len(season_raw)
+    ep_width     = len(episode_raw)
+    season_int   = int(season_raw)
+    ep_int       = int(episode_raw)
+
+    # Season never increments across a batch, so build it once.
+    season_str = str(season_int).zfill(season_width)
 
     status_msg  = await message.reply_text("⏳ Fetching media group…")
     media_group = await fetch_media_group(client, message.chat.id, replied)
@@ -329,10 +345,11 @@ async def _process_batch_rename(
     episodes:  list[int] = []
 
     for index, mg_msg in enumerate(valid_files):
-        episode = start_episode + index
-        episodes.append(episode)
+        ep_num = ep_int + index
+        ep_str = str(ep_num).zfill(ep_width)
+        episodes.append(ep_num)
 
-        output_filename = _resolve_template(template, season, episode)
+        output_filename = _resolve_template(template, season_str, ep_str)
         file_id, original_file_name, file_size = _file_info(mg_msg)
 
         task_data = _build_task(
@@ -353,8 +370,8 @@ async def _process_batch_rename(
         positions.append(position)
 
     # Summary
-    ep_start = f"{episodes[0]:02d}"
-    ep_end   = f"{episodes[-1]:02d}"
+    ep_start = str(episodes[0]).zfill(ep_width)
+    ep_end   = str(episodes[-1]).zfill(ep_width)
     pos_min  = min(positions)
     pos_max  = max(positions)
     pos_text = f"[{pos_min}]" if pos_min == pos_max else f"[{pos_min} – {pos_max}]"
@@ -368,7 +385,7 @@ async def _process_batch_rename(
 
     lines = [
         f"Queued **{len(valid_files)}** rename task(s) successfully.\n",
-        f"**Season:** {season:02d}",
+        f"**Season:** {season_str}",
         f"**Episodes:** {ep_start} → {ep_end}",
         f"**Mode:** {mode}",
         f"**Queue position(s):** {pos_text}",
