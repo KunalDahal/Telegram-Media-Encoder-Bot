@@ -6,7 +6,7 @@ from pyrogram.enums import ParseMode
 RESOLUTION_OPTIONS = ["HDRip", "1080p", "720p", "480p"]
 PRESET_OPTIONS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
 CODEC_OPTIONS  = ["libx264", "libx265"]
-AUDIO_OPTIONS  = ["96k", "128k", "192k", "256k", "320k"]
+AUDIO_OPTIONS  = ["48k","64k","96k", "128k", "192k", "256k", "320k"]
 
 DEFAULT_PROFILES = {
     "1080p": {"crf": 23, "preset": "medium", "codec": "libx264", "audio_bitrate": "192k"},
@@ -17,13 +17,13 @@ DEFAULT_PROFILES = {
 DEFAULT_FORMAT = "{title} S{season}E{episode} [{quality}] [{audio}].mkv"
 
 WM_POSITION_LABELS = {
-    "top_left":  "↖ Top Left",
-    "top_mid":   "⬆ Top Mid",
-    "top_right": "↗ Top Right",
-    "mid_left":  "⮜ Mid Left",
-    "mid_right": "▶ Mid Right",
-    "bot_left":  "↙ Bot Left",
-    "bot_right": "↘ Bot Right",
+    "top_left":  "🡔 Top Left",
+    "top_mid":   "🡑 Top Mid",
+    "top_right": "🡕 Top Right",
+    "mid_left":  "🡐 Mid Left",
+    "mid_right": "🡒 Mid Right",
+    "bot_left":  "🡗 Bot Left",
+    "bot_right": "🡖 Bot Right",
 }
 
 
@@ -51,11 +51,6 @@ def format_profile_summary(profile, resolution):
 
 
 def build_settings_text(name, username, user_id, settings, page: int = 0):
-    """Return (text, total_pages) for the settings main menu.
-
-    Page 0 — Identity · Resolutions · Profiles · Send Type · Thumbnail
-    Page 1 — Metadata · Watermark · Placeholders · Filename Format
-    """
     profiles  = settings.get("profiles", {})
     has_thumb = bool(settings.get("thumbnail_path") and os.path.exists(settings.get("thumbnail_path", "")))
     send_type = "Media" if settings.get("send_type") == "media" else "Document"
