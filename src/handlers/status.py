@@ -17,8 +17,8 @@ _active_status: dict[int, int] = {}
 
 _refresh_tasks: dict[int, asyncio.Task] = {}
 
-AUTO_REFRESH_INTERVAL = 15 
-_BAR_LEN               = 25  
+AUTO_REFRESH_INTERVAL = 5
+_BAR_LEN               = 10 
 
 _ACTIVE_STATUSES = frozenset({
     "starting", "queued", "downloading", "encoding", "uploading"

@@ -1,5 +1,5 @@
 pyrogram
-# tgcrypto
+tgcrypto
 python-dotenv
 FFmpeg-python
 pydantic
