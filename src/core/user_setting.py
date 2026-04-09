@@ -21,18 +21,26 @@ DEFAULT_PROFILES = {
 }
 
 DEFAULT_WATERMARK = {
-    "enabled":     False,
-    "text":        "",
-    "color":       "white",
-    "font_path":   "",
-    "font_name":   "default",
-    "font_size":   24,
-    "padding":     7,
-    "timing_mode": "range",
-    "start":       0,
-    "end":         0,
-    "duration":    30,
-    "position":    "bot_right",
+    "enabled":      False,
+    "text":         "",
+    "color":        "white",
+    "font_path":    "",
+    "font_name":    "default",
+    "font_size":    24,
+    "padding":      7,
+    "timing_mode":  "range",
+    # ── range mode ─────────────────────────────────────────────────────────
+    # start / end are stored as integer seconds internally; the UI accepts
+    # and displays them in MM:SS format.
+    "start":        0,
+    "end":          0,
+    # ── random_duration mode ────────────────────────────────────────────────
+    # duration  : how many seconds each appearance lasts
+    # repeat_count : how many times the watermark should appear in the video
+    "duration":     30,
+    "repeat_count": 1,
+    # ───────────────────────────────────────────────────────────────────────
+    "position":     "bot_right",
 }
 
 VALID_WM_POSITIONS = {
@@ -42,19 +50,19 @@ VALID_WM_POSITIONS = {
 }
 
 DEFAULT_MI_PARAMS: dict = {
-    "audio_offset":    0.0,    
-    "subtitle_offset": 0.0,  
-    "audio_async":     1,      
-    "audio_tempo":     1.0,    
-    "video_fps":       "source",   
-    "video_vsync":     "cfr",      
-    "video_pts":       "PTS-STARTPTS",   
-    "audio_pts":       "PTS-STARTPTS",   
+    "audio_offset":    0.0,
+    "subtitle_offset": 0.0,
+    "audio_async":     1,
+    "audio_tempo":     1.0,
+    "video_fps":       "source",
+    "video_vsync":     "cfr",
+    "video_pts":       "PTS-STARTPTS",
+    "audio_pts":       "PTS-STARTPTS",
     "audio_pad":       False,
     "video_pad":       False,
-    "shortest":        True, 
-    "fix_sub_duration": True, 
-    "generate_pts":     True, 
+    "shortest":        True,
+    "fix_sub_duration": True,
+    "generate_pts":     True,
     "ignore_dts":       False,
     "copy_timestamps":  False,
     "start_at_zero":    False,
@@ -132,6 +140,7 @@ class UserSettings:
         if "watermark" not in self.data:
             self.data["watermark"] = DEFAULT_WATERMARK.copy()
         else:
+            # Forward-fill any new keys added to DEFAULT_WATERMARK
             for key, val in DEFAULT_WATERMARK.items():
                 if key not in self.data["watermark"]:
                     self.data["watermark"][key] = val

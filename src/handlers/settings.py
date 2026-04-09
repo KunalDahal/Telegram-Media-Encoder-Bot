@@ -130,23 +130,53 @@ def build_profile_text(resolution, profile, subtitle=""):
     )
 
 
+def _secs_to_mmss(seconds: int) -> str:
+    """Convert an integer number of seconds to MM:SS display string."""
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
+
+def _mmss_to_secs(mmss: str) -> int:
+    """Parse a MM:SS string into integer seconds. Raises ValueError on bad input."""
+    mmss = mmss.strip()
+    if ":" not in mmss:
+        # Allow bare seconds as a convenience (e.g. "90" → 90 s)
+        return int(mmss)
+    parts = mmss.split(":", 1)
+    minutes = int(parts[0])
+    secs    = int(parts[1])
+    if not (0 <= secs < 60):
+        raise ValueError(f"Seconds component out of range: {secs}")
+    if minutes < 0:
+        raise ValueError(f"Minutes component negative: {minutes}")
+    return minutes * 60 + secs
+
+
 def build_watermark_text(wm: dict, subtitle: str = "") -> str:
-    enabled     = wm.get("enabled", False)
-    text        = wm.get("text", "") or "—"
-    color       = wm.get("color", "white").capitalize()
-    font_name   = wm.get("font_name", "default")
-    font_size   = wm.get("font_size", 24)
-    padding     = wm.get("padding", 7)
-    timing_mode = wm.get("timing_mode", "range")
-    position    = WM_POSITION_LABELS.get(wm.get("position", "bot_right"), "Bot Right")
-    extra       = f"\n<i>{subtitle}</i>" if subtitle else ""
+    enabled      = wm.get("enabled", False)
+    text         = wm.get("text", "") or "—"
+    color        = wm.get("color", "white").capitalize()
+    font_name    = wm.get("font_name", "default")
+    font_size    = wm.get("font_size", 24)
+    padding      = wm.get("padding", 7)
+    timing_mode  = wm.get("timing_mode", "range")
+    position     = WM_POSITION_LABELS.get(wm.get("position", "bot_right"), "Bot Right")
+    extra        = f"\n<i>{subtitle}</i>" if subtitle else ""
 
     if timing_mode == "full":
         timing_str = "Full Duration"
     elif timing_mode == "range":
-        timing_str = f"Range  <code>{wm.get('start', 0)}s → {wm.get('end', 0)}s</code>"
+        start_mmss = _secs_to_mmss(wm.get("start", 0))
+        end_mmss   = _secs_to_mmss(wm.get("end", 0))
+        timing_str = f"Range  <code>{start_mmss} → {end_mmss}</code>"
     else:
-        timing_str = f"Random  <code>{wm.get('duration', 30)}s</code> duration"
+        # random_duration
+        repeat   = wm.get("repeat_count", 1)
+        duration = wm.get("duration", 30)
+        timing_str = (
+            f"Random  <code>{repeat}×</code> appearance(s), "
+            f"<code>{duration}s</code> each"
+        )
 
     return (
         f"<b>Watermark</b>{extra}\n\n"
@@ -305,9 +335,26 @@ def build_wm_timing_keyboard(current_mode: str) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(lbl("full",            "Full Duration"),    callback_data="wm_timing_full")],
-        [InlineKeyboardButton(lbl("range",           "Start → End"),     callback_data="wm_timing_range")],
-        [InlineKeyboardButton(lbl("random_duration", "Random Duration"), callback_data="wm_timing_random")],
+        [InlineKeyboardButton(lbl("range",           "Start → End (MM:SS)"), callback_data="wm_timing_range")],
+        [InlineKeyboardButton(lbl("random_duration", "Random Duration"),  callback_data="wm_timing_random")],
         [InlineKeyboardButton("Back", callback_data="set_watermark")],
+    ])
+
+
+def build_wm_random_keyboard(wm: dict) -> InlineKeyboardMarkup:
+    """Sub-menu keyboard for the Random Duration timing mode."""
+    repeat   = wm.get("repeat_count", 1)
+    duration = wm.get("duration", 30)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            f"Appearances: {repeat}×",
+            callback_data="wm_random_count",
+        )],
+        [InlineKeyboardButton(
+            f"Duration per appearance: {duration}s",
+            callback_data="wm_random_duration",
+        )],
+        [InlineKeyboardButton("Back", callback_data="wm_set_timing")],
     ])
 
 
@@ -854,10 +901,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
             wm = user_settings(user_id).get_watermark()
             await message.edit_text(
                 "<b>Watermark Timing</b>\n\n"
-                ""
-                "<b>Full Duration</b>  Visible for the entire video.\n\n"
-                "<b>Start → End</b>  Visible between two exact timestamps.\n\n"
-                "<b>Random Duration</b>  Appears for N seconds at a random point.",
+                "<b>Full Duration</b>  —  Visible for the entire video.\n\n"
+                "<b>Start → End</b>  —  Visible between two timestamps in <code>MM:SS</code> format.\n\n"
+                "<b>Random Duration</b>  —  Appears N times at random non-overlapping points.",
                 reply_markup=build_wm_timing_keyboard(wm.get("timing_mode", "range")),
                 parse_mode=ParseMode.HTML
             )
@@ -879,7 +925,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
             user_settings(user_id).update_watermark(timing_mode="range")
             sent_message = await message.edit_text(
                 "<b>Set Start Time</b>\n\n"
-                "Send the <b>start time in seconds</b> (e.g. <code>22</code>).\n\n",
+                "Send the <b>start time</b> in <code>MM:SS</code> format.\n"
+                "<i>Example: <code>01:30</code> for 1 minute 30 seconds.</i>\n\n"
+                "You can also send bare seconds, e.g. <code>90</code>.",
                 reply_markup=build_cancel_keyboard(),
                 parse_mode=ParseMode.HTML
             )
@@ -893,17 +941,58 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
         elif data == "wm_timing_random":
             user_settings(user_id).update_watermark(timing_mode="random_duration")
-            sent_message = await message.edit_text(
+            wm = user_settings(user_id).get_watermark()
+            await message.edit_text(
                 "<b>Random Duration</b>\n\n"
-                "Send the <b>duration in seconds</b> the watermark should be visible.\n"
-                "<i>Example: <code>30</code></i>\n\n",
-                reply_markup=build_cancel_keyboard(),
+                "The watermark will appear at random non-overlapping points in the video.\n\n"
+                f"<b>Appearances:</b> <code>{wm.get('repeat_count', 1)}×</code>  "
+                "— how many times it should appear.\n"
+                f"<b>Duration each:</b> <code>{wm.get('duration', 30)}s</code>  "
+                "— how many seconds each appearance lasts.\n\n"
+                "<i>The video is divided into equal sections; one appearance is placed "
+                "randomly inside each section so they never overlap.</i>",
+                reply_markup=build_wm_random_keyboard(wm),
+                parse_mode=ParseMode.HTML
+            )
+            await callback_query.answer()
+            return
+
+        elif data == "wm_random_count":
+            wm = user_settings(user_id).get_watermark()
+            sent_message = await message.edit_text(
+                "<b>Number of Appearances</b>\n\n"
+                f"Current: <code>{wm.get('repeat_count', 1)}</code>\n\n"
+                "Send the number of times the watermark should appear in the video.\n"
+                "<i>Example: <code>3</code> means 3 separate appearances.</i>\n\n"
+                "Allowed range: <code>1 – 20</code>.",
+                reply_markup=build_cancel_keyboard("Cancel"),
+                parse_mode=ParseMode.HTML
+            )
+            user_settings(user_id).temp_state[user_id] = {
+                "state": "waiting_wm_random_count",
+                "prompt_message_id": sent_message.id,
+                "back_to": "wm_random",
+            }
+            await callback_query.answer()
+            return
+
+        elif data == "wm_random_duration":
+            wm = user_settings(user_id).get_watermark()
+            sent_message = await message.edit_text(
+                "<b>Duration per Appearance</b>\n\n"
+                f"Current: <code>{wm.get('duration', 30)}s</code>\n\n"
+                "Send the number of <b>seconds</b> each appearance should stay visible.\n"
+                "<i>Example: <code>5</code> means each appearance lasts 5 seconds.</i>\n\n"
+                "Allowed range: <code>1 – 3600</code>.\n\n"
+                "<i>If the value is too long for the number of appearances, "
+                "it will be clamped automatically at encode time.</i>",
+                reply_markup=build_cancel_keyboard("Cancel"),
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
                 "state": "waiting_wm_duration",
                 "prompt_message_id": sent_message.id,
-                "back_to": "watermark",
+                "back_to": "wm_random",
             }
             await callback_query.answer()
             return
@@ -1024,6 +1113,30 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 await message.edit_text(
                     build_watermark_text(wm),
                     reply_markup=build_watermark_keyboard(wm),
+                    parse_mode=ParseMode.HTML
+                )
+            elif back_to == "wm_random":
+                wm = us.get_watermark()
+                await message.edit_text(
+                    "<b>Random Duration</b>\n\n"
+                    "The watermark will appear at random non-overlapping points in the video.\n\n"
+                    f"<b>Appearances:</b> <code>{wm.get('repeat_count', 1)}×</code>  "
+                    "— how many times it should appear.\n"
+                    f"<b>Duration each:</b> <code>{wm.get('duration', 30)}s</code>  "
+                    "— how many seconds each appearance lasts.\n\n"
+                    "<i>The video is divided into equal sections; one appearance is placed "
+                    "randomly inside each section so they never overlap.</i>",
+                    reply_markup=build_wm_random_keyboard(wm),
+                    parse_mode=ParseMode.HTML
+                )
+            elif back_to == "wm_timing":
+                wm = us.get_watermark()
+                await message.edit_text(
+                    "<b>Watermark Timing</b>\n\n"
+                    "<b>Full Duration</b>  —  Visible for the entire video.\n\n"
+                    "<b>Start → End</b>  —  Visible between two timestamps in <code>MM:SS</code> format.\n\n"
+                    "<b>Random Duration</b>  —  Appears N times at random non-overlapping points.",
+                    reply_markup=build_wm_timing_keyboard(wm.get("timing_mode", "range")),
                     parse_mode=ParseMode.HTML
                 )
             elif back_to == "metadata":
@@ -1285,7 +1398,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
         elif state == "waiting_wm_range_start":
             try:
-                start = int(message.text)
+                start = _mmss_to_secs(message.text)
                 if start < 0:
                     raise ValueError
                 us.update_watermark(start=start)
@@ -1294,11 +1407,14 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
                 except Exception:
                     pass
+                start_mmss = _secs_to_mmss(start)
                 sent = await client.send_message(
                     user_id,
                     f"<b>Set End Time</b>\n\n"
-                    f"Start is set to <code>{start}s</code>.\n"
-                    "Now send the <b>end time in seconds</b>.\n\n",
+                    f"Start is set to <code>{start_mmss}</code>.\n"
+                    "Now send the <b>end time</b> in <code>MM:SS</code> format.\n"
+                    "<i>Example: <code>05:00</code> for 5 minutes.</i>\n\n"
+                    "You can also send bare seconds, e.g. <code>300</code>.",
                     reply_markup=build_cancel_keyboard(),
                     parse_mode=ParseMode.HTML
                 )
@@ -1308,15 +1424,22 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     "back_to": "watermark",
                 }
             except ValueError:
-                await message.reply_text("Please send a valid non-negative number.", parse_mode=ParseMode.HTML)
+                await message.reply_text(
+                    "Please send a valid time in <code>MM:SS</code> format "
+                    "(e.g. <code>01:30</code>) or bare seconds (e.g. <code>90</code>).",
+                    parse_mode=ParseMode.HTML
+                )
 
         elif state == "waiting_wm_range_end":
             try:
-                end = int(message.text)
+                end = _mmss_to_secs(message.text)
                 wm  = us.get_watermark()
-                if end <= wm.get("start", 0):
+                start = wm.get("start", 0)
+                if end <= start:
+                    start_mmss = _secs_to_mmss(start)
                     await message.reply_text(
-                        f"End time must be greater than start time (<code>{wm.get('start', 0)}s</code>).",
+                        f"End time must be greater than start time "
+                        f"(<code>{start_mmss}</code>).",
                         parse_mode=ParseMode.HTML
                     )
                     return
@@ -1327,19 +1450,25 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 except Exception:
                     pass
                 wm = us.get_watermark()
+                start_mmss = _secs_to_mmss(wm["start"])
+                end_mmss   = _secs_to_mmss(end)
                 await client.send_message(
                     user_id,
-                    build_watermark_text(wm, f"Timing set: {wm['start']}s → {end}s ✓"),
+                    build_watermark_text(wm, f"Timing set: {start_mmss} → {end_mmss} ✓"),
                     reply_markup=build_watermark_keyboard(wm),
                     parse_mode=ParseMode.HTML
                 )
             except ValueError:
-                await message.reply_text("Please send a valid number.", parse_mode=ParseMode.HTML)
+                await message.reply_text(
+                    "Please send a valid time in <code>MM:SS</code> format "
+                    "(e.g. <code>05:00</code>) or bare seconds (e.g. <code>300</code>).",
+                    parse_mode=ParseMode.HTML
+                )
 
         elif state == "waiting_wm_duration":
             try:
-                duration = int(message.text)
-                if duration <= 0:
+                duration = int(message.text.strip())
+                if not (1 <= duration <= 3600):
                     raise ValueError
                 us.update_watermark(duration=duration)
                 del us.temp_state[user_id]
@@ -1350,12 +1479,55 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 wm = us.get_watermark()
                 await client.send_message(
                     user_id,
-                    build_watermark_text(wm, f"Random duration set to {duration}s ✓"),
-                    reply_markup=build_watermark_keyboard(wm),
+                    "<b>Random Duration</b>\n\n"
+                    "The watermark will appear at random non-overlapping points in the video.\n\n"
+                    f"<b>Appearances:</b> <code>{wm.get('repeat_count', 1)}×</code>  "
+                    "— how many times it should appear.\n"
+                    f"<b>Duration each:</b> <code>{wm.get('duration', 30)}s</code>  "
+                    "— how many seconds each appearance lasts.\n\n"
+                    "<i>The video is divided into equal sections; one appearance is placed "
+                    "randomly inside each section so they never overlap.</i>\n\n"
+                    f"<i>Duration per appearance set to {duration}s ✓</i>",
+                    reply_markup=build_wm_random_keyboard(wm),
                     parse_mode=ParseMode.HTML
                 )
             except ValueError:
-                await message.reply_text("Please send a positive number of seconds.", parse_mode=ParseMode.HTML)
+                await message.reply_text(
+                    "Please send a whole number of seconds between <code>1</code> and <code>3600</code>.",
+                    parse_mode=ParseMode.HTML
+                )
+
+        elif state == "waiting_wm_random_count":
+            try:
+                count = int(message.text.strip())
+                if not (1 <= count <= 20):
+                    raise ValueError
+                us.update_watermark(repeat_count=count)
+                del us.temp_state[user_id]
+                try:
+                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
+                except Exception:
+                    pass
+                wm = us.get_watermark()
+                await client.send_message(
+                    user_id,
+                    "<b>Random Duration</b>\n\n"
+                    "The watermark will appear at random non-overlapping points in the video.\n\n"
+                    f"<b>Appearances:</b> <code>{wm.get('repeat_count', 1)}×</code>  "
+                    "— how many times it should appear.\n"
+                    f"<b>Duration each:</b> <code>{wm.get('duration', 30)}s</code>  "
+                    "— how many seconds each appearance lasts.\n\n"
+                    "<i>The video is divided into equal sections; one appearance is placed "
+                    "randomly inside each section so they never overlap.</i>\n\n"
+                    f"<i>Appearances set to {count}× ✓</i>",
+                    reply_markup=build_wm_random_keyboard(wm),
+                    parse_mode=ParseMode.HTML
+                )
+            except ValueError:
+                await message.reply_text(
+                    "Please send a whole number between <code>1</code> and <code>20</code>.",
+                    parse_mode=ParseMode.HTML
+                )
 
         elif state == "waiting_wm_font_size":
             try:

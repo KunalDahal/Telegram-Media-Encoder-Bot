@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import math
 import os
 import random
 
@@ -54,6 +55,62 @@ def _wm_position_expr(position: str, pad: float) -> str:
         "bot_right": f"x=W*{p1}-text_w:y=H*{p1}-text_h",
     }
     return exprs.get(position, exprs["bot_right"])
+
+
+def _build_random_intervals(
+    video_duration: float,
+    repeat_count: int,
+    per_duration: float,
+) -> list[tuple[float, float]]:
+    """Return a list of (start, end) tuples for non-overlapping watermark windows.
+
+    Strategy
+    --------
+    1.  Clamp inputs so the request is physically feasible:
+        - per_duration can be at most video_duration / repeat_count  (so all
+          appearances fit end-to-end with no overlap).
+        - repeat_count is reduced to at most floor(video_duration / per_duration)
+          if per_duration × repeat_count > video_duration.
+    2.  Divide the (clamped) video timeline into `repeat_count` equal sections.
+    3.  Inside each section, place the window randomly, ensuring:
+        - The window starts at least 0 s into the section (no negative offset).
+        - The window ends before the section boundary.
+        - A small jitter around the section midpoint is used for natural placement.
+    """
+    if video_duration <= 0 or repeat_count <= 0 or per_duration <= 0:
+        return []
+
+    # ── Feasibility clamp ─────────────────────────────────────────────────────
+    max_fits = max(1, int(video_duration / per_duration))
+    repeat_count = min(repeat_count, max_fits)
+
+    # Also clamp per_duration so it fits inside one equal section
+    section_len = video_duration / repeat_count
+    per_duration = min(per_duration, section_len)
+
+    intervals: list[tuple[float, float]] = []
+    for i in range(repeat_count):
+        sec_start = i * section_len
+        sec_end   = sec_start + section_len
+
+        # Available start range inside this section
+        latest_start = sec_end - per_duration
+        if latest_start < sec_start:
+            # Section too short — just start at section begin
+            start = sec_start
+        else:
+            # Jitter: pick randomly between sec_start and latest_start,
+            # biased toward the middle third for a natural look.
+            mid_lo = sec_start + (section_len - per_duration) * 0.25
+            mid_hi = sec_start + (section_len - per_duration) * 0.75
+            mid_lo = max(sec_start, min(mid_lo, latest_start))
+            mid_hi = max(mid_lo,    min(mid_hi, latest_start))
+            start = random.uniform(mid_lo, mid_hi)
+
+        end = start + per_duration
+        intervals.append((round(start, 3), round(end, 3)))
+
+    return intervals
 
 
 class FFmpeg:
@@ -137,30 +194,48 @@ class FFmpeg:
         except (TypeError, ValueError):
             video_duration = 0.0
 
+        # ── Build enable= expression ──────────────────────────────────────────
+        enable_expr = ""  # empty → always visible
+
         if timing_mode == "full":
-            start_sec = 0
-            end_sec   = 0
-        elif timing_mode == "random_duration":
-            duration  = max(1, int(wm.get("duration", 30)))
-            if video_duration > 0 and duration < video_duration:
-                start_sec = random.randint(0, int(video_duration - duration))
-            else:
-                start_sec = 0
-            end_sec = start_sec + duration
-        else:
+            # No enable= needed — visible for the entire video
+            enable_expr = ""
+
+        elif timing_mode == "range":
+            # start/end are stored as integer seconds
             start_sec = max(0, int(wm.get("start", 0)))
             end_sec   = int(wm.get("end", 0))
             if end_sec <= start_sec:
+                # Degenerate range → fall back to full duration
                 end_sec = int(video_duration) if video_duration > 0 else 0
+            if not (start_sec == 0 and end_sec == 0):
+                enable_expr = f"between(t,{start_sec},{end_sec})"
 
+        elif timing_mode == "random_duration":
+            # Multi-appearance: divide video into sections, place one window
+            # per section at a random (middle-biased) position.
+            per_duration = max(1, int(wm.get("duration", 30)))
+            repeat_count = max(1, int(wm.get("repeat_count", 1)))
+
+            intervals = _build_random_intervals(video_duration, repeat_count, per_duration)
+
+            if intervals:
+                # FFmpeg enable= uses '+' for boolean OR between conditions
+                clauses = [f"between(t,{s},{e})" for s, e in intervals]
+                enable_expr = "+".join(clauses)
+            else:
+                # Fallback: show for full duration if we couldn't compute intervals
+                enable_expr = ""
+
+        # ── Assemble drawtext filter ──────────────────────────────────────────
         parts = [f"{font_part}text='{text_escaped}'"]
         parts += [
             f"fontcolor={color}",
             f"fontsize={font_size_expr}",
             pos_expr,
         ]
-        if not (start_sec == 0 and end_sec == 0):
-            parts.append(f"enable='between(t,{start_sec},{end_sec})'")
+        if enable_expr:
+            parts.append(f"enable='{enable_expr}'")
 
         return "drawtext=" + ":".join(parts)
 
@@ -234,8 +309,6 @@ class FFmpeg:
         if video_codec not in ("libx264", "libx265", "h264", "h265"):
             video_codec = "libx264"
 
-        sub_codec = self._subtitle_codec(output_path)
-
         # Never upscale: cap each dimension at the source value.
         # The trailing scale ensures even dimensions required by yuv420p.
         scale_pad = (
@@ -250,16 +323,24 @@ class FFmpeg:
         cmd = [
             self.ffmpeg_path,
             "-i", input_path,
-            "-map", "0:v",
-            "-map", "0:a",
-            "-map", "0:s?",
-            "-map", "0:t?",
+            "-map", "0:v",  # Map all video streams
+            "-map", "0:a",  # Map all audio streams
+            "-map", "0:s?", # Map all subtitle streams (if present)
+            "-map", "0:d?", # Map all data streams (if present)
+            "-map", "0:t?", # Map all attachment streams (if present)
         ]
 
+        # Apply audio settings to ALL audio streams
         if audio_codec == "copy":
             cmd.extend(["-c:a", "copy"])
         else:
             cmd.extend(["-c:a", audio_codec, "-b:a", audio_bitrate])
+
+        cmd.extend([
+            "-c:s", "copy", 
+            "-c:d", "copy",
+            "-c:t", "copy",  
+        ])
 
         cmd.extend([
             "-c:v", video_codec,
@@ -267,10 +348,9 @@ class FFmpeg:
             "-crf", str(settings.get("crf", 23)),
             "-vf", vf,
             "-pix_fmt", "yuv420p",
-            "-c:s", sub_codec,
-            "-c:t", "copy",
             "-map_metadata", "0",
         ])
+        
         if video_codec in ("libx264", "h264"):
             cmd.extend(["-x264-params", "threads=3:lookahead_threads=1:sliced_threads=0"])
         elif video_codec in ("libx265", "h265"):
