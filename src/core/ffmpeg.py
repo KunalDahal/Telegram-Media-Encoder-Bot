@@ -1,7 +1,6 @@
 import asyncio
 import copy
 import json
-import math
 import os
 import random
 
@@ -57,13 +56,6 @@ def _wm_position_expr(position: str, pad: float) -> str:
     return exprs.get(position, exprs["bot_right"])
 
 
-def _cpu_thread_limit(max_cpu_pct: float = 75.0) -> int:
-    cpu_count = os.cpu_count() or 1
-    threads   = math.floor(cpu_count * max_cpu_pct / 100.0)
-    return max(1, threads)
-
-
-_FFMPEG_THREADS = _cpu_thread_limit(75.0)
 
 
 class FFmpeg:
@@ -214,7 +206,6 @@ class FFmpeg:
         if processing_mode == "metadata_only" or resolution_str == "HDRip":
             cmd = [
                 self.ffmpeg_path,
-                "-threads", str(_FFMPEG_THREADS),
                 "-i", input_path,
                 "-map", "0",
                 "-c", "copy",
@@ -241,7 +232,6 @@ class FFmpeg:
                 sub_codec = self._subtitle_codec(output_path)
                 cmd = [
                     self.ffmpeg_path,
-                    "-threads", str(_FFMPEG_THREADS),
                     "-i", input_path,
                     "-map", "0:v",
                     "-map", "0:a",
@@ -260,7 +250,6 @@ class FFmpeg:
             else:
                 cmd = [
                     self.ffmpeg_path,
-                    "-threads", str(_FFMPEG_THREADS),
                     "-i", input_path,
                     "-map", "0",
                     "-c", "copy",
@@ -290,7 +279,6 @@ class FFmpeg:
 
         cmd = [
             self.ffmpeg_path,
-            "-threads", str(_FFMPEG_THREADS),
             "-i", input_path,
             "-map", "0:v",
             "-map", "0:a",
@@ -307,13 +295,16 @@ class FFmpeg:
             "-c:v", video_codec,
             "-preset", settings.get("preset", "medium"),
             "-crf", str(settings.get("crf", 23)),
-            "-threads", str(_FFMPEG_THREADS),
             "-vf", vf,
             "-pix_fmt", "yuv420p",
             "-c:s", sub_codec,
             "-c:t", "copy",
             "-map_metadata", "0",
         ])
+        if video_codec in ("libx264", "h264"):
+            cmd.extend(["-x264-params", "threads=3:lookahead_threads=1:sliced_threads=0"])
+        elif video_codec in ("libx265", "h265"):
+            cmd.extend(["-x265-params", "pools=3:lookahead-slices=1"])
 
         cmd.extend(self._container_flags(output_path))
         self._append_metadata(cmd, metadata)

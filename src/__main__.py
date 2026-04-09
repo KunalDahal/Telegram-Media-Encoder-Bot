@@ -46,7 +46,8 @@ async def main():
         api_hash=config.api_hash,
         bot_token=config.bot_token,
         workdir=config.paths.logs,
-        workers=16,
+        workers=32,
+        max_concurrent_transmissions=10,
     )
 
     task_queue = TaskQueue()
@@ -67,11 +68,11 @@ async def main():
     # ── Register handlers ─────────────────────────────────────────────────────
     setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
     setup_rename_handler(app, task_queue, get_user_settings, config)
-    setup_mediainfo_handlers(app=app, config=config)
     setup_cancel_handlers(app, task_queue, config)
     setup_status_handlers(app=app, task_queue=task_queue, admin_ids=config.admin_ids, config=config)
     setup_start_handler(app, config)  
     setup_settings_handlers(app=app, user_settings=get_user_settings, config=config)
+    setup_mediainfo_handlers(app=app, config=config)
 
     # ── Worker ────────────────────────────────────────────────────────────────
     worker = Worker(task_queue, get_user_settings, ffmpeg, app, config)
@@ -89,9 +90,7 @@ async def main():
     ║  /start   – Welcome              ║     
     ║  /es      – Encoding settings    ║
     ║  /encode  – Single Encode        ║
-    ║  /be      – Batch Encode         ║
     ║  /rename  – Rename a file        ║
-    ║  /br      – Batch Rename         ║
     ║  /status  – Queue status         ║
     ║  /mi      – Media Info           ║
     ║  /cancel  – Cancel a task        ║
