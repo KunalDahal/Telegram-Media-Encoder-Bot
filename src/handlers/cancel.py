@@ -24,12 +24,10 @@ def get_admin_ids():
 
 
 async def _check_access(client, message: Message) -> bool:
+    """Verify the user has started the bot in DM (so we can send them messages).
+    Admin check is intentionally NOT here — ownership is enforced per-task below.
+    """
     user_id = message.from_user.id
-
-    if user_id not in _admin_ids:
-        await message.reply_text("Dukhi Atma!😔")
-        return False
-
     try:
         await client.get_chat(user_id)
     except Exception:
@@ -40,7 +38,6 @@ async def _check_access(client, message: Message) -> bool:
             parse_mode=enums.ParseMode.HTML,
         )
         return False
-
     return True
 
 
@@ -85,11 +82,13 @@ def setup_cancel_handlers(app: Client, task_queue, config):
             )
             return
 
-        # ── Ownership check (non-admins can only cancel their own tasks) ──────
+        # ── Ownership check ───────────────────────────────────────────────────
+        # Admins can cancel any task. Regular users can only cancel their own.
         user_id = message.from_user.id
-        if user_id not in _admin_ids and task.get("user_id") != user_id:
+        is_admin = user_id in _admin_ids
+        if not is_admin and task.get("user_id") != user_id:
             await message.reply_text(
-                "You can only cancel your own tasks.",
+                "❌ You can only cancel your own tasks.",
                 parse_mode=enums.ParseMode.HTML,
             )
             return

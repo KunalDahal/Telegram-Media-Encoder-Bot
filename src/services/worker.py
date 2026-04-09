@@ -18,6 +18,7 @@ class Worker:
         self.thumbnails_dir = config.paths.thumbnails
         self.running = False
         self._current_task_id = None
+        self._current_asyncio_task: asyncio.Task | None = None
 
         os.makedirs(self.temp_base, exist_ok=True)
         os.makedirs(self.thumbnails_dir, exist_ok=True)
@@ -50,7 +51,8 @@ class Worker:
 
             self._current_task_id = task["task_id"]
             try:
-                await self._run_task(task)
+                self._current_asyncio_task = asyncio.create_task(self._run_task(task))
+                await self._current_asyncio_task
             except asyncio.CancelledError:
                 await self._notify_user(task["user_id"], f"⚠️ Task `{task['task_id'][:8]}` was cancelled.")
                 self.task_queue.remove_task(task["task_id"])
@@ -64,6 +66,7 @@ class Worker:
                 self.task_queue.remove_task(task["task_id"])
                 self._cleanup_task_folder(task["task_id"])
             finally:
+                self._current_asyncio_task = None
                 self._current_task_id = None
 
     def _next_queued_task(self):
@@ -225,16 +228,23 @@ class Worker:
             print(f"[Worker] Failed to notify user {user_id}: {e}")
 
     async def cancel_task(self, task_id: str):
+        task = self.task_queue.get_task(task_id)
+
         if task_id == self._current_task_id:
-            task = self.task_queue.get_task(task_id)
-            if task and task.get("status") == "queued":
-                self.task_queue.remove_task(task_id)
-                self._cleanup_task_folder(task_id)
-                await self._notify_user(task["user_id"], f"⚠️ Task `{task_id[:8]}` cancelled (was queued).")
+            # Task is actively running — cancel the asyncio task.
+            # CancelledError will propagate through download/encode/upload,
+            # killing any ffmpeg subprocess, and be caught by _worker_loop
+            # which handles cleanup and user notification.
+            if self._current_asyncio_task and not self._current_asyncio_task.done():
+                self._current_asyncio_task.cancel()
             else:
-                await self._notify_user(task["user_id"], f"⚠️ Task `{task_id[:8]}` is already running; cannot cancel.")
+                # Edge case: between steps, no subtask active yet
+                if task:
+                    self.task_queue.remove_task(task_id)
+                    self._cleanup_task_folder(task_id)
+                    await self._notify_user(task["user_id"], f"⚠️ Task `{task_id[:8]}` cancelled.")
         else:
-            task = self.task_queue.get_task(task_id)
+            # Task is queued but not yet running — safe to remove directly
             if task:
                 self.task_queue.remove_task(task_id)
                 self._cleanup_task_folder(task_id)

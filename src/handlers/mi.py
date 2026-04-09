@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
-
+from pyrogram.enums import ParseMode
 from pyrogram import filters
 from pyrogram.handlers import MessageHandler
 from pyrogram.types import Message
@@ -57,7 +57,7 @@ async def _handle_media(client, message: Message):
             f"📄 <b>MediaInfo</b>\n"
             f"<b>File:</b> <code>{filename}</code>\n"
             f"<b>Link:</b> {url}",
-            parse_mode="html",
+            parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
 

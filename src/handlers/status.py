@@ -14,6 +14,7 @@ import time
 BOT_START_TIME = time.time()
 
 _active_status: dict[int, int] = {}
+_active_page:   dict[int, int] = {} 
 
 _refresh_tasks: dict[int, asyncio.Task] = {}
 
@@ -32,6 +33,20 @@ def _progress_bar(pct: float) -> str:
     filled = round(_BAR_LEN * pct / 100)
     empty  = _BAR_LEN - filled
     return f"[{'█' * filled}{'░' * empty}] {pct:.1f}%"
+
+
+# ── Pagination keyboard ───────────────────────────────────────────────────────
+
+def _build_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup | None:
+    if total_pages <= 1:
+        return None
+    buttons = []
+    if page > 0:
+        buttons.append(InlineKeyboardButton("◀ Prev", callback_data=f"status_page:{page - 1}"))
+    buttons.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="status_page:noop"))
+    if page < total_pages - 1:
+        buttons.append(InlineKeyboardButton("Next ▶", callback_data=f"status_page:{page + 1}"))
+    return InlineKeyboardMarkup([buttons])
 
 
 # ── Access guard ──────────────────────────────────────────────────────────────
@@ -73,12 +88,44 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             except Exception:
                 pass
             _active_status.pop(chat_id, None)
+
+        _active_page[chat_id] = 0
         sent = await _send_status(client, message, task_queue, page=0)
         if sent:
             _active_status[chat_id] = sent.id
             _refresh_tasks[chat_id] = asyncio.create_task(
                 _auto_refresh_loop(client, chat_id, sent, task_queue)
             )
+
+    @app.on_callback_query(filters.regex(r"^status_page:") & allowed_filter)
+    async def status_page_callback(client: Client, callback_query):
+        await callback_query.answer()
+
+        data = callback_query.data  # e.g. "status_page:2" or "status_page:noop"
+        raw = data.split(":", 1)[1]
+        if raw == "noop":
+            return
+
+        try:
+            page = int(raw)
+        except ValueError:
+            return
+
+        chat_id = callback_query.message.chat.id
+        msg_id  = callback_query.message.id
+
+        # Only update the message that /status originally sent for this chat
+        if _active_status.get(chat_id) != msg_id:
+            return
+
+        _active_page[chat_id] = page
+        await show_status(
+            client,
+            callback_query.message,
+            task_queue,
+            page=page,
+            is_callback=True,
+        )
 
 
 # ── Auto-refresh ──────────────────────────────────────────────────────────────
@@ -96,7 +143,8 @@ async def _auto_refresh_loop(client, chat_id, status_msg, task_queue):
             if _active_status.get(chat_id) != status_msg.id:
                 break
             try:
-                await show_status(client, status_msg, task_queue, page=0, is_callback=True)
+                page = _active_page.get(chat_id, 0)
+                await show_status(client, status_msg, task_queue, page=page, is_callback=True)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -109,10 +157,13 @@ async def _auto_refresh_loop(client, chat_id, status_msg, task_queue):
 # ── Senders ───────────────────────────────────────────────────────────────────
 
 async def _send_status(client, message, task_queue, page=0) -> Message | None:
-    text = _build_status_content(task_queue, page)
+    text, total_pages = _build_status_content(task_queue, page)
+    keyboard = _build_keyboard(page, total_pages)
     try:
         return await message.reply_text(
-            text, parse_mode=enums.ParseMode.HTML
+            text,
+            parse_mode=enums.ParseMode.HTML,
+            reply_markup=keyboard,
         )
     except Exception as e:
         print(f"[status] send failed: {e}")
@@ -120,23 +171,28 @@ async def _send_status(client, message, task_queue, page=0) -> Message | None:
 
 
 async def show_status(client, message, task_queue, page=0, is_callback=False):
-    text = _build_status_content(task_queue, page)
+    text, total_pages = _build_status_content(task_queue, page)
+    keyboard = _build_keyboard(page, total_pages)
     if is_callback:
         try:
             await message.edit_text(
-                text, parse_mode=enums.ParseMode.HTML
+                text,
+                parse_mode=enums.ParseMode.HTML,
+                reply_markup=keyboard,
             )
         except Exception:
             pass
     else:
         await message.reply_text(
-            text, parse_mode=enums.ParseMode.HTML
+            text,
+            parse_mode=enums.ParseMode.HTML,
+            reply_markup=keyboard,
         )
 
 
 # ── Core renderer ─────────────────────────────────────────────────────────────
 
-def _build_status_content(task_queue, page: int) -> str:
+def _build_status_content(task_queue, page: int) -> tuple[str, int]:
     all_active = [
         task_queue.get_task(tid)
         for tid in task_queue.queue
@@ -146,7 +202,7 @@ def _build_status_content(task_queue, page: int) -> str:
 
     items_per_page = 5
     total_pages    = ceil(len(all_active) / items_per_page) if all_active else 1
-    page           = min(page, total_pages - 1)
+    page           = min(max(page, 0), total_pages - 1)
     start_idx      = page * items_per_page
     page_tasks     = all_active[start_idx : start_idx + items_per_page]
 
@@ -173,7 +229,7 @@ def _build_status_content(task_queue, page: int) -> str:
         f"┖ RAM: {mem.percent:.1f}%  Uptime: {uptime}"
     )
 
-    return "\n".join(lines)
+    return "\n".join(lines), total_pages
 
 
 # ── Per-task block ────────────────────────────────────────────────────────────
