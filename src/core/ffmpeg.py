@@ -56,8 +56,6 @@ def _wm_position_expr(position: str, pad: float) -> str:
     return exprs.get(position, exprs["bot_right"])
 
 
-
-
 class FFmpeg:
     def __init__(self, ffmpeg_path: str = "ffmpeg", ffprobe_path: str = "ffprobe"):
         self.ffmpeg_path     = ffmpeg_path
@@ -217,44 +215,13 @@ class FFmpeg:
             return cmd
 
         if processing_mode == "rename":
-            wm_filter = self._build_watermark_filter(watermark, media_info) if watermark else ""
-            if wm_filter:
-                source_codec = "libx264"
-                try:
-                    for stream in media_info.get("streams", []):
-                        if stream.get("codec_type") == "video":
-                            cn = stream.get("codec_name", "")
-                            source_codec = "libx265" if ("265" in cn or "hevc" in cn) else "libx264"
-                            break
-                except Exception:
-                    source_codec = "libx264"
-
-                sub_codec = self._subtitle_codec(output_path)
-                cmd = [
-                    self.ffmpeg_path,
-                    "-i", input_path,
-                    "-map", "0:v",
-                    "-map", "0:a",
-                    "-map", "0:s?",
-                    "-map", "0:t?",
-                    "-c:a", "copy",
-                    "-c:s", sub_codec,
-                    "-c:t", "copy",
-                    "-c:v", source_codec,
-                    "-crf", "18",
-                    "-preset", "medium",
-                    "-vf", wm_filter,
-                    "-pix_fmt", "yuv420p",
-                    "-map_metadata", "0",
-                ]
-            else:
-                cmd = [
-                    self.ffmpeg_path,
-                    "-i", input_path,
-                    "-map", "0",
-                    "-c", "copy",
-                    "-map_metadata", "0",
-                ]
+            cmd = [
+                self.ffmpeg_path,
+                "-i", input_path,
+                "-map", "0",
+                "-c", "copy",
+                "-map_metadata", "0",
+            ]
             cmd.extend(self._container_flags(output_path))
             self._append_metadata(cmd, metadata)
             cmd.extend(["-y", output_path])
@@ -269,9 +236,12 @@ class FFmpeg:
 
         sub_codec = self._subtitle_codec(output_path)
 
+        # Never upscale: cap each dimension at the source value.
+        # The trailing scale ensures even dimensions required by yuv420p.
         scale_pad = (
-            f"scale={dimensions}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"
+            f"scale='min({width},iw)':'min({height},ih)'"
+            f":force_original_aspect_ratio=decrease"
+            f",scale=trunc(iw/2)*2:trunc(ih/2)*2"
         )
 
         wm_filter = self._build_watermark_filter(watermark, media_info) if watermark else ""
@@ -373,10 +343,10 @@ class FFmpeg:
                     if "=" not in line:
                         continue
                     key, _, val = line.partition("=")
-                    if key in ("out_time_ms", "out_time_us"):
+                    if key == "out_time_us":
                         try:
-                            us  = int(val)
-                            pct = min(99.9, us / 1_000_000 / duration_secs * 100)
+                            elapsed_secs = int(val) / 1_000_000
+                            pct = min(99.9, elapsed_secs / duration_secs * 100)
                             await progress_cb(pct)
                         except (ValueError, ZeroDivisionError):
                             pass

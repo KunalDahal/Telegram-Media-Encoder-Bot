@@ -21,7 +21,7 @@ AUTO_REFRESH_INTERVAL = 5
 _BAR_LEN               = 10 
 
 _ACTIVE_STATUSES = frozenset({
-    "starting", "queued", "downloading", "encoding", "uploading"
+    "starting", "queued", "downloading", "ready", "encoding", "uploading"
 })
 
 
@@ -278,6 +278,8 @@ def _build_status_label(task: dict) -> str:
         return "Queued"
     if status == "starting":
         return "Starting…"
+    if status == "ready":
+        return "Waiting for Encode"
     if status == "downloading":
         return "Downloading"
     if status == "encoding":

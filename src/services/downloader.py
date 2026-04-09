@@ -77,6 +77,7 @@ class Downloader:
                         "speed":      0,
                         "eta":        0,
                     }
+                    task["progress"] = 100.0
 
             return actual_path
 
@@ -137,6 +138,7 @@ class Downloader:
                     "speed":      round(speed, 2),
                     "eta":        eta,
                 }
+                task["progress"] = round(percentage, 2)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

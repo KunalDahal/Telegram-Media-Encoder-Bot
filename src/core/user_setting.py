@@ -121,6 +121,8 @@ class UserSettings:
             self.data["metadata"] = {"title": "", "author": "", "encoder": ""}
         if "send_type" not in self.data:
             self.data["send_type"] = "media"
+        if "auto_detect_thumb" not in self.data:
+            self.data["auto_detect_thumb"] = False
         if "profiles" not in self.data:
             self.data["profiles"] = {res: p.copy() for res, p in DEFAULT_PROFILES.items()}
         else:
@@ -175,6 +177,7 @@ class UserSettings:
             "codec":                "libx264",
             "audio_bitrate":        "128k",
             "send_type":            "media",
+            "auto_detect_thumb":    False,
             "metadata":             {"title": "", "author": "", "encoder": ""},
             "thumbnail_path":       "",
             "profiles":             {res: p.copy() for res, p in DEFAULT_PROFILES.items()},
@@ -373,6 +376,21 @@ class UserSettings:
                     pass
             self.data["thumbnail_path"] = persistent_path
             self._save()
+
+    def clear_thumbnail(self):
+        old_thumb = self.data.get("thumbnail_path")
+        thumbs_abs = os.path.abspath(self.thumbnails_folder)
+        if (
+            old_thumb
+            and os.path.exists(old_thumb)
+            and os.path.abspath(old_thumb).startswith(thumbs_abs)
+        ):
+            try:
+                os.remove(old_thumb)
+            except Exception:
+                pass
+        self.data["thumbnail_path"] = ""
+        self._save()
 
     def get_params(self) -> Dict[str, Any]:
         if "params" not in self.data:

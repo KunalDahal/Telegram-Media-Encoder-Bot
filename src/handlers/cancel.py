@@ -63,6 +63,7 @@ def setup_cancel_handlers(app: Client, task_queue, config):
 
         task_id_part = message.command[1].strip()
 
+        # ── Match task by prefix ──────────────────────────────────────────────
         matching_task_id = None
         for tid in list(task_queue.tasks.keys()):
             if tid.startswith(task_id_part):
@@ -84,6 +85,7 @@ def setup_cancel_handlers(app: Client, task_queue, config):
             )
             return
 
+        # ── Ownership check (non-admins can only cancel their own tasks) ──────
         user_id = message.from_user.id
         if user_id not in _admin_ids and task.get("user_id") != user_id:
             await message.reply_text(
@@ -100,6 +102,16 @@ def setup_cancel_handlers(app: Client, task_queue, config):
             )
             return
 
+        task_status = task.get("status", "")
+        if task_status == "queued":
+            task_queue.remove_task(matching_task_id)
+            await message.reply_text(
+                f"✅ Task <code>{task_id_part}</code> cancelled (was queued, not yet started).",
+                parse_mode=enums.ParseMode.HTML,
+            )
+            return
+
+        # ── Active task — delegate to worker ─────────────────────────────────
         try:
             await worker.cancel_task(matching_task_id)
             await message.reply_text(

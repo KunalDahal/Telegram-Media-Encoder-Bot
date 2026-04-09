@@ -30,25 +30,31 @@ class Encoder:
 
         cmd = self.ffmpeg.build_command(input_path, temp_output_path, settings)
 
-        # ── Probe video duration for progress % calculation ───────────────────
+        # Probe duration directly from the file — no dependency on task media_info
         duration_secs = 0.0
         try:
-            mi = (
-                task_data.get("media_info")
-                or settings.get("media_info")
-                or {}
-            )
-            duration_secs = float(mi.get("format", {}).get("duration", 0))
-        except (TypeError, ValueError):
-            duration_secs = 0.0
+            media_info = await self.ffmpeg.probe_media(input_path)
+            duration_secs = float(media_info.get("format", {}).get("duration", 0))
+            # Pass to build_command settings for watermark timing (if watermark uses it)
+            settings.setdefault("media_info", media_info)
+        except Exception:
+            pass
 
-        # ── Progress callback → writes to task["encode_progress"] ─────────────
+        if duration_secs == 0.0:
+            print(f"[Encoder] [{task_id_short}] No duration — progress will jump 0→100% on completion")
+
+        # ── Progress callback ─────────────────────────────────────────────────
         async def _progress_cb(pct: float):
             if task_queue is None:
                 return
             task = task_queue.tasks.get(task_id)
             if task is not None:
                 task["encode_progress"] = {"percentage": round(pct, 1)}
+                # 🔧 CRITICAL FIX: Update task["progress"] so status command shows it
+                task["progress"] = round(pct, 1)
+                # Also call update_status without progress arg to avoid overwriting
+                # (since update_status sets task["progress"] if progress arg is provided)
+                task_queue.update_status(task_id, "encoding")
 
         success, error = await self.ffmpeg.execute(
             cmd,
@@ -68,10 +74,13 @@ class Encoder:
         if os.path.exists(final_output_path):
             os.remove(final_output_path)
         os.rename(temp_output_path, final_output_path)
+
         if task_queue:
             task = task_queue.tasks.get(task_id)
             if task is not None:
                 task["encode_progress"] = {"percentage": 100.0}
+                task["progress"] = 100.0
+                task_queue.update_status(task_id, "encoding")
 
         return final_output_path
 

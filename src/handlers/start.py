@@ -38,7 +38,7 @@ START_TEXT = (
     "\n"
     f"{_D}\n"
     "\n"
-    f"<code>/es</code>  to configure  ·  tap <b>Guide ⮞</b> for full reference"
+    f"<code>/es</code>  to configure  ·  tap <b>Guide →</b> for full reference"
 )
 
 
@@ -560,7 +560,7 @@ def _start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("Developer", url="https://t.me/renzobot"),
-            InlineKeyboardButton("Guide ⮞",  callback_data="help_open:0"),
+            InlineKeyboardButton("Guide →",  callback_data="help_open:0"),
         ],
         [
             InlineKeyboardButton("Close",  callback_data="start_close"),
@@ -574,7 +574,7 @@ def _help_keyboard(page: int) -> InlineKeyboardMarkup:
         nav.append(InlineKeyboardButton("⮜", callback_data=f"help_page:{page - 1}"))
     nav.append(InlineKeyboardButton(f"{page + 1} / {TOTAL_PAGES}", callback_data="help_noop"))
     if page < TOTAL_PAGES - 1:
-        nav.append(InlineKeyboardButton("⮞", callback_data=f"help_page:{page + 1}"))
+        nav.append(InlineKeyboardButton("→", callback_data=f"help_page:{page + 1}"))
 
     return InlineKeyboardMarkup([
         nav,
@@ -632,7 +632,7 @@ async def _show_start(message: Message, config: Config, edit: bool = False):
     except Exception as e:
         print(f"[Start] send failed: {e}")
         await message.reply_text(
-            f"Welcome {message.from_user.first_name}!  Tap <b>Guide ⮞</b> for all commands.",
+            f"Welcome {message.from_user.first_name}!  Tap <b>Guide →</b> for all commands.",
             reply_markup=kb,
             parse_mode=enums.ParseMode.HTML,
         )

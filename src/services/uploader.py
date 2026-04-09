@@ -51,12 +51,38 @@ class Uploader:
     def _max_part_size(self) -> int:
         return MAX_PREMIUM_BYTES if self.user_is_premium else MAX_NON_PREMIUM_BYTES
 
+    async def _resolve_thumbnail(self, task_folder: str) -> str | None:
+        auto_detect     = bool(self.task_data.get("auto_detect_thumb", False))
+        source_thumb_id = self.task_data.get("source_thumbnail_file_id", "")
+        user_thumb      = self.task_data.get("thumbnail_path", "")
+
+        if auto_detect and source_thumb_id:
+            source_thumb_path = os.path.join(task_folder, "_source_thumb.jpg")
+            try:
+                downloaded = await self.client.download_media(
+                    source_thumb_id,
+                    file_name=source_thumb_path,
+                )
+                if downloaded and os.path.exists(downloaded):
+                    print(f"[Uploader] Using auto-detected source thumbnail: {downloaded}")
+                    return os.path.abspath(downloaded)
+                else:
+                    print("[Uploader] Auto-detect thumb: download returned nothing, falling back to user thumb")
+            except Exception as e:
+                print(f"[Uploader] Source thumbnail download failed: {e}, falling back to user thumb")
+
+        if user_thumb and os.path.exists(user_thumb):
+            print(f"[Uploader] Using user thumbnail: {user_thumb}")
+            return user_thumb
+
+        print("[Uploader] No thumbnail available (neither source nor user-uploaded)")
+        return None
+
     async def upload(self):
         task_id          = self.task_data["task_id"]
         user_id          = self.task_data["user_id"]
         output_file_name = self.task_data["output_filename"]
         send_type        = self.task_data.get("send_type", "media")
-        thumbnail_path   = self.task_data.get("thumbnail_path", "")
 
         task_folder        = os.path.join(self._tmp_dir, task_id)
         explicit_file_path = self.task_data.get("upload_file_path")
@@ -82,11 +108,7 @@ class Uploader:
 
         file_size   = os.path.getsize(final_file_path)
         max_part_sz = self._max_part_size()
-        thumb       = (
-            thumbnail_path
-            if thumbnail_path and os.path.exists(thumbnail_path)
-            else None
-        )
+        thumb       = await self._resolve_thumbnail(task_folder)
 
         # ── Split if the encoded file exceeds the limit ───────────────────────
         if file_size > max_part_sz:

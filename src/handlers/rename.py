@@ -102,6 +102,14 @@ def _file_info(media_msg: Message):
     )
 
 
+def _source_thumbnail_file_id(msg: Message) -> str:
+    media = msg.video or msg.document
+    thumbs = getattr(media, "thumbs", None) or []
+    if not thumbs:
+        return ""
+    return getattr(thumbs[-1], "file_id", "") or ""
+
+
 def _is_video_message(msg: Message) -> bool:
     if msg.video:
         return True
@@ -175,6 +183,7 @@ def _build_task(
     file_id: str,
     original_file_name: str,
     file_size: int,
+    source_thumbnail_file_id: str,
     output_filename: str,
     settings: dict,
     watermark: dict,
@@ -204,14 +213,17 @@ def _build_task(
         "created_at":                created_at,
         "file_size":                 file_size,
         "send_type":                 settings.get("send_type", "media"),
+        "auto_detect_thumb":         bool(settings.get("auto_detect_thumb", False)),
+        "source_thumbnail_file_id":  source_thumbnail_file_id,
         "resolutions":               ["rename"],
         "jobs":                      [job],
         "total_jobs":                1,
         "current_job":               0,
         "current_stage":             "queued",
         "thumbnail_path":            settings.get("thumbnail_path", ""),
-        "watermark":                 watermark,
+        "watermark":                 {},
         "settings_snapshot":         settings,
+        "task_type":                 "rename",
         "batch_rename":              batch,
     }
 
@@ -260,6 +272,7 @@ async def _process_single_rename(
         file_id=file_id,
         original_file_name=original_file_name,
         file_size=file_size,
+        source_thumbnail_file_id=_source_thumbnail_file_id(replied),
         output_filename=filename,
         settings=settings,
         watermark=watermark,
@@ -270,12 +283,7 @@ async def _process_single_rename(
     task_id  = task_queue.create_task(task_data)
     position = task_queue.get_queue_position(task_id)
 
-    wm     = watermark or {}
-    mode   = (
-        "rename + watermark + metadata"
-        if wm.get("enabled") and wm.get("text")
-        else "rename + metadata"
-    )
+    mode = "rename + metadata"
 
     await message.reply_text(
         f"Task `{filename}` queued at position **[{position}]**\n"
@@ -390,6 +398,7 @@ async def _process_batch_rename(
             file_id=file_id,
             original_file_name=original_file_name,
             file_size=file_size,
+            source_thumbnail_file_id=_source_thumbnail_file_id(mg_msg),
             output_filename=output_filename,
             settings=settings,
             watermark=watermark,
@@ -408,12 +417,7 @@ async def _process_batch_rename(
     pos_max  = max(positions)
     pos_text = f"[{pos_min}]" if pos_min == pos_max else f"[{pos_min} – {pos_max}]"
 
-    wm     = watermark or {}
-    mode   = (
-        "rename + watermark + metadata"
-        if wm.get("enabled") and wm.get("text")
-        else "rename + metadata"
-    )
+    mode = "rename + metadata"
 
     mode_label = f"sequential ({batch_count} msgs)" if batch_count else "media group"
     lines = [

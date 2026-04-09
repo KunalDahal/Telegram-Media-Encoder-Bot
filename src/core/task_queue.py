@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 _ACTIVE_STATUSES = frozenset({
-    "starting", "queued", "downloading", "encoding", "uploading"
+    "starting", "queued", "downloading", "ready", "encoding", "uploading"
 })
 
 class TaskQueue:
@@ -77,6 +77,29 @@ class TaskQueue:
             pass
         if self.current_task == task_id:
             self.current_task = None
+        self.processing = any(
+            t.get("status") in _ACTIVE_STATUSES - {"queued"}
+            for t in self.tasks.values()
+        )
+
+    def purge_stale_tasks(self):
+        queue_set   = set(self.queue)
+        stale_ids   = [
+            tid for tid, task in list(self.tasks.items())
+            if tid not in queue_set
+            or task.get("status") not in _ACTIVE_STATUSES
+        ]
+        for tid in stale_ids:
+            self.tasks.pop(tid, None)
+            try:
+                self.queue.remove(tid)
+            except ValueError:
+                pass
+        self.queue = [tid for tid in self.queue if tid in self.tasks]
+
+        if self.current_task and self.current_task not in self.tasks:
+            self.current_task = None
+
         self.processing = any(
             t.get("status") in _ACTIVE_STATUSES - {"queued"}
             for t in self.tasks.values()
