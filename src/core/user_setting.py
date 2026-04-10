@@ -4,9 +4,8 @@ import shutil
 import uuid
 from typing import Any, Dict
 
-VALID_RESOLUTIONS = ["HDRip", "1080p", "720p", "480p"]
+VALID_RESOLUTIONS = ["1080p", "720p", "480p"]
 RESOLUTION_ALIASES = {
-    "hdrip": "HDRip",
     "1080p": "1080p",
     "720p":  "720p",
     "480p":  "480p",
@@ -14,7 +13,6 @@ RESOLUTION_ALIASES = {
 }
 
 DEFAULT_PROFILES = {
-    "HDRip": {"mode": "metadata_only", "crf": None, "preset": None, "codec": None, "audio_bitrate": None},
     "1080p": {"mode": "encode", "crf": 23, "preset": "medium", "codec": "libx264", "audio_bitrate": "192k"},
     "720p":  {"mode": "encode", "crf": 26, "preset": "medium", "codec": "libx264", "audio_bitrate": "128k"},
     "480p":  {"mode": "encode", "crf": 28, "preset": "fast",   "codec": "libx264", "audio_bitrate": "96k"},
@@ -29,17 +27,10 @@ DEFAULT_WATERMARK = {
     "font_size":    24,
     "padding":      7,
     "timing_mode":  "range",
-    # ── range mode ─────────────────────────────────────────────────────────
-    # start / end are stored as integer seconds internally; the UI accepts
-    # and displays them in MM:SS format.
     "start":        0,
     "end":          0,
-    # ── random_duration mode ────────────────────────────────────────────────
-    # duration  : how many seconds each appearance lasts
-    # repeat_count : how many times the watermark should appear in the video
     "duration":     30,
     "repeat_count": 1,
-    # ───────────────────────────────────────────────────────────────────────
     "position":     "bot_right",
 }
 
@@ -243,24 +234,14 @@ class UserSettings:
 
     def get_effective_settings(self, resolution: str, base_overrides: Dict[str, Any] = None) -> Dict[str, Any]:
         profile = self.get_profile(resolution)
-        if resolution == "HDRip":
-            effective = {
-                "resolution":      resolution,
-                "processing_mode": "metadata_only",
-                "crf":             None,
-                "preset":          None,
-                "codec":           None,
-                "audio_bitrate":   None,
-            }
-        else:
-            effective = {
-                "resolution":      resolution,
-                "processing_mode": profile.get("mode", "encode"),
-                "crf":             profile.get("crf", 23),
-                "preset":          profile.get("preset", "medium"),
-                "codec":           profile.get("codec", "libx264"),
-                "audio_bitrate":   profile.get("audio_bitrate", "128k"),
-            }
+        effective = {
+            "resolution":      resolution,
+            "processing_mode": profile.get("mode", "encode"),
+            "crf":             profile.get("crf", 23),
+            "preset":          profile.get("preset", "medium"),
+            "codec":           profile.get("codec", "libx264"),
+            "audio_bitrate":   profile.get("audio_bitrate", "128k"),
+        }
         if base_overrides:
             effective.update(base_overrides)
         return effective
@@ -367,24 +348,37 @@ class UserSettings:
         self._save()
 
     def set_thumbnail(self, path: str):
-        if path and os.path.exists(path):
-            ext              = os.path.splitext(path)[1]
-            thumb_filename   = f"thumb_{self.user_id}_{uuid.uuid4().hex[:8]}{ext}"
-            persistent_path  = os.path.join(self.thumbnails_folder, thumb_filename)
-            shutil.copy2(path, persistent_path)
-            old_thumb = self.data.get("thumbnail_path")
-            if (
-                old_thumb
-                and old_thumb != persistent_path
-                and os.path.exists(old_thumb)
-                and old_thumb.startswith(self.thumbnails_folder)
-            ):
-                try:
-                    os.remove(old_thumb)
-                except Exception:
-                    pass
-            self.data["thumbnail_path"] = persistent_path
-            self._save()
+        if not path or not os.path.exists(path):
+            return
+        ext             = os.path.splitext(path)[1] or ".jpg"
+        thumb_filename  = f"thumb_{self.user_id}_{uuid.uuid4().hex[:8]}{ext}"
+        persistent_path = os.path.abspath(os.path.join(self.thumbnails_folder, thumb_filename))
+        shutil.copy2(path, persistent_path)
+
+        # Remove the old tracked thumbnail from disk
+        old_thumb  = self.data.get("thumbnail_path", "")
+        thumbs_abs = os.path.abspath(self.thumbnails_folder)
+        if (
+            old_thumb
+            and old_thumb != persistent_path
+            and os.path.exists(old_thumb)
+            and os.path.abspath(old_thumb).startswith(thumbs_abs)
+        ):
+            try:
+                os.remove(old_thumb)
+            except Exception:
+                pass
+
+        # Clean up the source temp file if it isn't the persistent copy itself
+        src_abs = os.path.abspath(path)
+        if src_abs != persistent_path and os.path.exists(src_abs):
+            try:
+                os.remove(src_abs)
+            except Exception:
+                pass
+
+        self.data["thumbnail_path"] = persistent_path
+        self._save()
 
     def clear_thumbnail(self):
         old_thumb = self.data.get("thumbnail_path")

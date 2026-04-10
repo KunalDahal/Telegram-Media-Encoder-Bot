@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+import shutil
 from pyrogram.enums import ParseMode
 from pyrogram import filters
 from pyrogram.handlers import MessageHandler
@@ -17,15 +18,22 @@ PARTIAL_BYTES = 3 * 1024 * 1024   # 3 MB head — enough for mediainfo
 
 # ─── Handler ──────────────────────────────────────────────────────────────────
 
-async def _handle_media(client, message: Message):
+async def _handle_mi_command(client, message: Message):
+    # Must be a reply to a media message
+    replied = message.reply_to_message
+    if not replied:
+        await message.reply_text("⚠️ Reply to a media file with /mi to get its MediaInfo.")
+        return
+
     media = (
-        message.document
-        or message.video
-        or message.audio
-        or message.voice
-        or message.video_note
+        replied.document
+        or replied.video
+        or replied.audio
+        or replied.voice
+        or replied.video_note
     )
     if not media:
+        await message.reply_text("⚠️ The replied message contains no supported media.")
         return
 
     filename  = getattr(media, "file_name", None) or f"file_{media.file_id[:8]}"
@@ -65,8 +73,6 @@ async def _handle_media(client, message: Message):
         await status_msg.edit_text(f"❌ Failed: {e}")
 
     finally:
-        # Clean up temp files
-        import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
@@ -75,13 +81,7 @@ async def _handle_media(client, message: Message):
 def setup_mediainfo_handlers(app, config=None):
     app.add_handler(
         MessageHandler(
-            _handle_media,
-            filters.private & (
-                filters.document
-                | filters.video
-                | filters.audio
-                | filters.voice
-                | filters.video_note
-            ),
+            _handle_mi_command,
+            filters.command("mi"),
         )
     )

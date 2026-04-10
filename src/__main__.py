@@ -30,6 +30,7 @@ from src.handlers.status import setup_status_handlers
 from src.handlers.start import setup_start_handler
 from src.handlers.cancel import setup_cancel_handlers, set_worker_instance, set_admin_ids
 from src.handlers.mi import setup_mediainfo_handlers
+from src.handlers.set import setup_set_handlers
 from src.handlers.rename import setup_rename_handler
 
 logging.basicConfig(level=logging.INFO)
@@ -66,6 +67,7 @@ async def main():
     await app.start()
 
     # ── Register handlers ─────────────────────────────────────────────────────
+    setup_set_handlers(app=app, user_settings=get_user_settings, config=config)
     setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
     setup_rename_handler(app, task_queue, get_user_settings, config)
     setup_cancel_handlers(app, task_queue, config)

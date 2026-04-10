@@ -58,6 +58,7 @@ Navigate page by page using the arrows below.
 
 <b>Settings</b>
   <code>/es</code>      — Configure all bot settings
+  <code>/st</code>      — Set thumbnail
 
 <b>Encoding</b>
   <code>/encode</code>  <code>/e</code>  — Encode a video
@@ -71,8 +72,8 @@ Navigate page by page using the arrows below.
   <code>/cancel</code>  <code>/c</code>  — Stop a running task
 
 <b>Reference</b>
-  Tips &amp; Best Practices
-  Do's and Don'ts
+  How to Encode  ·  How to Rename
+  Tips &amp; Best Practices  ·  Do's and Don'ts
 {_D}""",
 
 
@@ -89,8 +90,7 @@ f"""<b>{_H} /es  —  Settings  (1/2)</b>
 Select one or more output resolutions (up to 4).
 <code>HDRip  ·  1080p  ·  720p  ·  480p</code>
 
-<b>HDRip</b> = stream-copy + metadata only.
-No re-encode — source quality preserved exactly.
+<b>HDRip</b> = stream-copy only. No re-encode — source quality kept.
 
 {_Ds}
 
@@ -129,7 +129,7 @@ f"""<b>{_H} /es  —  Settings  (2/2)</b>
 {_Ds}
 
 <b>{_S} Thumbnail</b>
-  Upload <code>JPG/PNG</code> via <code>/es</code>.
+  Set via <code>/st</code> command (reply to a photo).
   Reused for all encoded and renamed files.
 
 {_Ds}
@@ -141,15 +141,9 @@ f"""<b>{_H} /es  —  Settings  (2/2)</b>
 
 {_Ds}
 
-<b>{_S} Placeholders</b> <i>(defaults for /encode flags)</i>
-  Episode · Season · Audio
-  Used when <code>-e</code> <code>-s</code> <code>-a</code> are omitted.
-
-{_Ds}
-
-<b>{_S} Filename Format</b>
-<code>{{title}} S{{season}}E{{episode}} [{{quality}}] [{{audio}}].mkv</code>
-{_A} <code>Show S01E01 [1080p] [SUB].mkv</code>
+<b>{_S} Placeholders</b>
+  <b>Episode</b> — default start episode for <code>{{episode}}</code> in templates
+  <b>Season</b>  — default season for <code>{{season}}</code> in templates
 
 {_D}""",
 
@@ -159,34 +153,34 @@ f"""<b>{_H} /es  —  Settings  (2/2)</b>
 # ══════════════════════════════════════════════════════════════════════════════
 f"""<b>{_H} /encode  /e  —  Encode a Video</b>
 
-<i>Reply to a video, send /encode with flags. Filename is built from your format template in /es.</i>
+<i>Reply to a video and send the command with a filename template.</i>
 
 {_D}
 
 <b>{_S} Usage</b>
-<code>/encode [-s S] [-e E] [-a AUDIO] [-q RES] -t Title</code>
+<code>/e &lt;filename template.ext&gt;</code>
 
-<b>Flags</b>
-  <code>-t</code>  Title  <b>(required, must be last)</b>
-  <code>-e</code>  Episode  <i>(falls back to saved default)</i>
-  <code>-s</code>  Season   <i>(falls back to saved default)</i>
-  <code>-a</code>  Audio tag  e.g. <code>SUB</code> · <code>DUAL</code>
-  <code>-q</code>  Force one resolution  e.g. <code>720p</code>
+{_Ds}
+
+<b>{_S} Template Rules</b>
+{_B}  Must contain <code>{{quality}}</code> — filled per resolution
+{_B}  May contain <code>{{episode}}</code> — filled from settings
+{_B}  Must end with a valid video extension
 
 {_Ds}
 
 <b>{_S} Examples</b>
-<code>/encode -t Pokemon</code>
-<code>/encode -e 12 -t Dragon Ball</code>
-<code>/encode -s 2 -e 5 -a DUAL -t Naruto</code>
-<code>/encode -q 720p -e 3 -t One Piece</code>
+<code>/e [S1-E03] Pokemon [{{quality}}].mkv</code>
+<code>/e [S1-E{{episode}}] Naruto [{{quality}}] [SUB].mkv</code>
+<code>/e Movie Name [{{quality}}] @Source.mkv</code>
 
 {_Ds}
 
 <b>{_S} Notes</b>
-{_B}  Reply to a video or video document
-{_B}  Without <code>-q</code>, all selected resolutions are used
-{_B}  Omitted flags use saved defaults from <code>/es</code>
+{_B}  Reply to a video before sending the command
+{_B}  All selected resolutions encode in one task
+{_B}  <code>{{episode}}</code> fills from <code>/es → Placeholders</code>
+{_B}  Output delivered to your DM
 
 {_D}""",
 
@@ -199,33 +193,27 @@ f"""<b>{_H} /encode -b  —  Batch Encode</b>
 {_D}
 
 <b>Media group</b> — reply to first file of a Telegram album:
-<code>/encode -b [-s S] [-e E] [-a A] [-q RES] -t Title</code>
+<code>/e -b &lt;template.ext&gt;</code>
 
-<b>Sequential</b> — reply to first, grab N individual msgs:
-<code>/encode -b N [-s S] [-e E] [-a A] [-q RES] -t Title</code>
-
-{_Ds}
-
-<b>{_S} Flags</b>
-  <code>-b</code>    Batch — media group  <b>(required)</b>
-  <code>-b N</code>  Sequential — grab N msgs  <i>(N ≥ 2)</i>
-  <code>-t</code>    Title  <b>(required, must be last)</b>
-  <code>-e</code>    Start episode  <code>-s</code>  Season
-  <code>-a</code>    Audio tag  <code>-q</code>  Force resolution
+<b>Sequential</b> — reply to first, grab N individual messages:
+<code>/e -b N &lt;template.ext&gt;</code>
 
 {_Ds}
 
 <b>{_S} Examples</b>
-<code>/encode -b -s 1 -e 4 -a SUB -t Pokemon</code>
-<i>↳ album: ep 04, 05, 06…</i>
+<code>/e -b [S1-E{{episode}}] Pokemon [{{quality}}].mkv</code>
+<i>↳ album: episodes auto-increment from default</i>
 
-<code>/encode -b 6 -e 1 -t One Piece</code>
+<code>/e -b 6 [S1-E{{episode}}] One Piece [{{quality}}].mkv</code>
 <i>↳ sequential: 6 msgs from replied</i>
 
 {_Ds}
 
 <b>{_S} Notes</b>
-{_B}  Episode auto-increments by 1 per file
+{_B}  <code>-b</code> alone = media group (album)
+{_B}  <code>-b N</code> = grab N sequential messages  <i>(N ≥ 2)</i>
+{_B}  <code>{{episode}}</code> auto-increments by 1 per file
+{_B}  Start episode set in <code>/es → Placeholders</code>
 {_B}  Non-video files are skipped automatically
 
 {_D}""",
@@ -236,14 +224,14 @@ f"""<b>{_H} /encode -b  —  Batch Encode</b>
 # ══════════════════════════════════════════════════════════════════════════════
 f"""<b>{_H} /rename  /r  —  Rename a Single File</b>
 
-<i>Reply to any video file with /rename and the new filename. No re-encoding. Thumbnail, metadata, and watermark are applied.</i>
+<i>Reply to any video file with the exact new filename. No re-encoding.</i>
 
 {_D}
 
 <b>{_S} Usage</b>
 <code>/rename &lt;new filename.ext&gt;</code>
 
-You write the full filename exactly as you want it.
+Write the full filename exactly as you want it.
 No placeholders — just the literal name.
 
 {_Ds}
@@ -257,7 +245,7 @@ No placeholders — just the literal name.
 <b>{_S} What Gets Applied</b>
 {_B}  Thumbnail from your settings
 {_B}  Metadata  <i>(title, author, encoder)</i>
-{_B}  Watermark  <i>(if enabled in /es)</i>
+{_B}  No watermark on rename
 
 {_Ds}
 
@@ -275,12 +263,10 @@ f"""<b>{_H} /rename -b  —  Batch Rename</b>
 
 {_D}
 
-<b>{_S} Two batch modes</b>
-
 <b>Media group</b> — reply to first file of a Telegram album:
 <code>/rename -b &lt;filename template.ext&gt;</code>
 
-<b>Sequential</b> — reply to first, grab N individual msgs:
+<b>Sequential</b> — reply to first, grab N individual messages:
 <code>/rename -b N &lt;filename template.ext&gt;</code>
 
 {_Ds}
@@ -296,77 +282,38 @@ f"""<b>{_H} /rename -b  —  Batch Rename</b>
 <i>↳ album of 3: [S01-E01].mkv, [S01-E02].mkv…</i>
 
 <code>/rename -b 6 [S{{season}}-E{{episode}}] Show.mkv</code>
-<i>↳ sequential: 6 msgs starting from replied</i>
+<i>↳ sequential: 6 messages from replied</i>
 
 {_Ds}
 
 <b>{_S} Notes</b>
 {_B}  Season &amp; start episode set in <code>/es → Placeholders</code>
 {_B}  Non-video files are skipped automatically
-{_B}  Thumbnail, metadata &amp; watermark applied to each file
 
 {_D}""",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Page 8 — Filename Format &amp; Placeholders
-# ══════════════════════════════════════════════════════════════════════════════
-f"""<b>{_H} Filename Format &amp; Placeholders</b>
-
-<i>Used by /encode to auto-build filenames. Set in /es → Filename Format.</i>
-
-{_D}
-
-<b>{_S} Placeholders</b>
-<code>{{title}}</code>    — <code>-t</code> flag  <b>(required)</b>
-<code>{{quality}}</code>  — resolution  <b>(required)</b>
-<code>{{episode}}</code>  — <code>-e</code> flag  <b>(required)</b>
-<code>{{season}}</code>   — <code>-s</code> flag
-<code>{{audio}}</code>    — <code>-a</code> flag  <i>(bracket removed if omitted)</i>
-
-{_Ds}
-
-<b>{_S} Default Format</b>
-<code>{{title}} S{{season}}E{{episode}} [{{quality}}] [{{audio}}].mkv</code>
-
-{_Ds}
-
-<b>{_S} Example</b>
-<code>/encode -s 1 -e 5 -a SUB -t Pokemon</code>
-{_A} <code>Pokemon S01E05 [1080p] [SUB].mkv</code>
-
-Without <code>-a</code>:
-{_A} <code>Pokemon S01E05 [1080p].mkv</code>
-
-{_Ds}
-
-<b>{_S} Notes</b>
-{_B}  Format must end with a valid video extension
-{_B}  <code>{{title}}</code> <code>{{quality}}</code> <code>{{episode}}</code> are all required
-
-{_D}""",
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Page 9 — /mi
+# Page 8 — /mi
 # ══════════════════════════════════════════════════════════════════════════════
 f"""<b>{_H} /mi  —  MediaInfo Report</b>
 
-<i>Generates a detailed MediaInfo report and publishes it to a permanent Telegraph page.</i>
+<i>Generates a MediaInfo report and posts it to a permanent Telegraph page.</i>
 
 {_D}
 
 <b>{_S} Usage</b>
-{_A}  Reply to a media file:  <code>/mi</code>
-{_A}  With a download link:   <code>/mi &lt;url&gt;</code>
-{_A}  Reply to a URL message: <code>/mi</code>
+Reply to a media file, then send:
+<code>/mi</code>
+
+That's it — no extra flags needed.
 
 {_Ds}
 
 <b>{_S} Example Output</b>
-✅ MediaInfo ready!
-📄 File: <code>Movie.mkv</code>
-🔗 View: Telegraph page
+📄 <b>MediaInfo</b>
+<b>File:</b> <code>Movie.mkv</code>
+<b>Link:</b> https://telegra.ph/...
 
 {_Ds}
 
@@ -379,15 +326,14 @@ f"""<b>{_H} /mi  —  MediaInfo Report</b>
 {_Ds}
 
 <b>{_S} Notes</b>
-{_B}  Only first ~3 MB downloaded for analysis
-{_B}  Works on remote URLs — no upload needed
+{_B}  Only the first ~3 MB is downloaded for analysis
 {_B}  Telegraph link is permanent and shareable
 
 {_D}""",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Page 10 — /status
+# Page 9 — /status
 # ══════════════════════════════════════════════════════════════════════════════
 f"""<b>{_H} /status  /s  —  Live Queue &amp; Stats</b>
 
@@ -429,11 +375,11 @@ f"""<b>{_H} /status  /s  —  Live Queue &amp; Stats</b>
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Page 11 — /cancel
+# Page 10 — /cancel
 # ══════════════════════════════════════════════════════════════════════════════
 f"""<b>{_H} /cancel  /c  —  Cancel a Task</b>
 
-<i>Stops a running or queued task. Temporary files are cleaned up automatically.</i>
+<i>Stops a running or queued task. Temp files are cleaned up automatically.</i>
 
 {_D}
 
@@ -443,7 +389,7 @@ f"""<b>{_H} /cancel  /c  —  Cancel a Task</b>
 {_Ds}
 
 <b>{_S} Finding the Task ID</b>
-Run <code>/status</code> — task ID shown at the bottom of each block.
+Run <code>/status</code> — the task ID is shown at the bottom of each block.
 
 {_A} Example:  <code>┖ /cancel a1b2c3d4</code>
 
@@ -462,23 +408,130 @@ Only the first few characters are needed.
 {_B}  Admins can cancel any task
 {_B}  Works at any stage: queued → uploading
 {_B}  Temp files deleted on cancellation
-{_B}  Check <code>/status</code> if task ID not found
 
 {_D}""",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Page 12 — Tips & Best Practices
+# Page 11 — /st (Set Thumbnail)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} /st  /setthumb  —  Set Thumbnail</b>
+
+<i>Set a custom thumbnail that is applied to all encoded and renamed files.</i>
+
+{_D}
+
+<b>{_S} Usage</b>
+Reply to a <b>photo</b> or <b>image file</b>, then send:
+<code>/st</code>
+
+{_Ds}
+
+<b>{_S} Example</b>
+1. Send a JPG/PNG image to the group
+2. Reply to that image with <code>/st</code>
+3. Bot confirms: ✅ Thumbnail saved
+
+{_Ds}
+
+<b>{_S} Notes</b>
+{_B}  Admin only command
+{_B}  Accepts photo messages or image documents
+{_B}  Saved thumbnail is reused for all tasks
+{_B}  To remove thumbnail, clear it via <code>/es</code>
+{_B}  Works in both group and private chat
+
+{_D}""",
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 12 — How to Encode (step by step)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} How to Encode  —  Step by Step</b>
+
+{_D}
+
+<b>Step 1 — Configure settings</b>
+Send <code>/es</code> and set:
+  · Resolutions  · CRF / Preset / Codec
+  · Audio bitrate  · Metadata  · Thumbnail
+
+{_Ds}
+
+<b>Step 2 — Write your template</b>
+The filename you want, with placeholders:
+  <code>{{quality}}</code> — <b>required</b>, fills the resolution
+  <code>{{episode}}</code> — optional, fills from your default episode
+
+Example template:
+<code>[S1-E{{episode}}] Show Name [{{quality}}] [SUB].mkv</code>
+
+{_Ds}
+
+<b>Step 3 — Send the command</b>
+Reply to the video, then send:
+<code>/e [S1-E{{episode}}] Show Name [{{quality}}] [SUB].mkv</code>
+
+{_Ds}
+
+<b>Step 4 — Wait for delivery</b>
+Check <code>/status</code> for progress.
+Output files arrive in your DM.
+
+{_D}""",
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 13 — How to Rename (step by step)
+# ══════════════════════════════════════════════════════════════════════════════
+f"""<b>{_H} How to Rename  —  Step by Step</b>
+
+{_D}
+
+<b>Single File Rename</b>
+
+Step 1 — Reply to a video file
+Step 2 — Send the exact filename you want:
+<code>/rename [S01-E05] Show Name [1080p].mkv</code>
+Step 3 — Done. File delivered to your DM.
+
+No placeholders in single mode — just type the name as-is.
+
+{_Ds}
+
+<b>Batch Rename</b>
+
+Step 1 — Set season &amp; start episode in <code>/es → Placeholders</code>
+Step 2 — Reply to the <u>first</u> file of the album
+Step 3 — Send with a template:
+<code>/rename -b [S{{season}}-E{{episode}}] Show.mkv</code>
+
+For sequential messages (not an album):
+<code>/rename -b 6 [S{{season}}-E{{episode}}] Show.mkv</code>
+
+Step 4 — Bot queues all files. Output in your DM.
+
+{_Ds}
+
+<b>Notes</b>
+{_B}  Only <code>{{season}}</code> and <code>{{episode}}</code> work in batch
+{_B}  Episode auto-increments per file
+
+{_D}""",
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Page 14 — Tips & Best Practices
 # ══════════════════════════════════════════════════════════════════════════════
 f"""<b>{_H} Tips &amp; Best Practices</b>
 
 {_D}
 
 <b>{_S} Before Encoding</b>
-{_B}  Configure <code>/es</code> first
+{_B}  Configure <code>/es</code> first — saves time every task
 {_B}  Select only the resolutions you need
 {_B}  Set metadata once — applies to all tasks
-{_B}  Upload thumbnail once — reused every time
+{_B}  Use <code>/st</code> to set thumbnail once, reused forever
 
 {_Ds}
 
@@ -501,13 +554,13 @@ f"""<b>{_H} Tips &amp; Best Practices</b>
 {_B}  Tasks run one at a time in order
 {_B}  Use <code>/status</code> to monitor position and ETA
 {_B}  For batch, reply to the <u>first</u> file of the album
-{_B}  Test template with a single rename first
+{_B}  Test with a single file before batch
 
 {_D}""",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Page 13 — Do's and Don'ts
+# Page 15 — Do's and Don'ts
 # ══════════════════════════════════════════════════════════════════════════════
 f"""<b>{_H} Do's and Don'ts</b>
 
@@ -515,20 +568,21 @@ f"""<b>{_H} Do's and Don'ts</b>
 
 <b>◆ Do</b>
 ✦  Run <code>/es</code> before queuing any task
-✦  Always include <code>-t Title</code> in <code>/encode</code>
+✦  Always include <code>{{quality}}</code> in <code>/encode</code> templates
+✦  Use <code>/st</code> to set your thumbnail once
 ✦  Use <code>-b</code> for batch encode/rename on albums
 ✦  Use <code>-b N</code> for N sequential individual messages
 ✦  Reply to the <u>first</u> file of the album for batch
-✦  Set season, episode &amp; audio in <code>/es → Placeholders</code>
 ✦  Start the bot in DM before using in a group
 
 {_D}
 
 <b>◇ Don't</b>
-✦  Don't forget <code>-t</code> — required for <code>/encode</code>
+✦  Don't skip <code>{{quality}}</code> in encode templates — required
 ✦  Don't use placeholders in <code>/rename</code> single mode
 ✦  Don't use unsupported placeholders in <code>/rename -b</code>
 ✦  Don't select HDRip if you need a re-encode
+✦  Don't use <code>/mi</code> without replying to a file
 
 {_Ds}
 
@@ -536,7 +590,6 @@ f"""<b>{_H} Do's and Don'ts</b>
 {_B}  Lower CRF = better quality, larger file
 {_B}  <code>libx265</code> compresses better than <code>libx264</code>
 {_B}  Use <code>/mi</code> to inspect files before encoding
-{_B}  Premium accounts support uploads up to ~4 GB
 
 {_D}""",
 

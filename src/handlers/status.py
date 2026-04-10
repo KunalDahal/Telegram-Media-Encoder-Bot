@@ -339,8 +339,6 @@ def _build_status_label(task: dict) -> str:
     if status == "downloading":
         return "Downloading"
     if status == "encoding":
-        if mode == "metadata_only":
-            return f"HDRip Copy{job_tag}"
         if mode == "rename":
             return f"Renaming{job_tag}"
         return f"Encoding{job_tag}"

@@ -276,19 +276,6 @@ class FFmpeg:
         audio_codec     = settings.get("audio_codec", "aac")
         audio_bitrate   = settings.get("audio_bitrate", "128k")
 
-        if processing_mode == "metadata_only" or resolution_str == "HDRip":
-            cmd = [
-                self.ffmpeg_path,
-                "-i", input_path,
-                "-map", "0",
-                "-c", "copy",
-                "-map_metadata", "0",
-            ]
-            cmd.extend(self._container_flags(output_path))
-            self._append_metadata(cmd, metadata)
-            cmd.extend(["-y", output_path])
-            return cmd
-
         if processing_mode == "rename":
             cmd = [
                 self.ffmpeg_path,

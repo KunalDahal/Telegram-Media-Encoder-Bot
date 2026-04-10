@@ -171,13 +171,17 @@ class Worker:
         await uploader.upload()
 
     async def _resolve_thumbnail(self, task: dict, job: dict) -> str | None:
-        auto_detect = bool(task.get("auto_detect_thumb", False))
-        source_thumb_id = task.get("source_thumbnail_file_id", "")
-        user_thumb = job.get("thumbnail_path", "") or task.get("thumbnail_path", "")
+        auto_detect      = bool(task.get("auto_detect_thumb", False))
+        source_thumb_id  = task.get("source_thumbnail_file_id", "")
+        user_thumb = job.get("thumbnail_path") or task.get("thumbnail_path") or ""
 
         task_folder = os.path.join(self.temp_base, task["task_id"])
 
-        if auto_detect and source_thumb_id:
+        if not auto_detect:
+            if user_thumb and os.path.exists(user_thumb):
+                return user_thumb
+            return None
+        if source_thumb_id:
             source_thumb_path = os.path.join(task_folder, "_source_thumb.jpg")
             try:
                 downloaded = await self.client.download_media(
@@ -231,20 +235,14 @@ class Worker:
         task = self.task_queue.get_task(task_id)
 
         if task_id == self._current_task_id:
-            # Task is actively running — cancel the asyncio task.
-            # CancelledError will propagate through download/encode/upload,
-            # killing any ffmpeg subprocess, and be caught by _worker_loop
-            # which handles cleanup and user notification.
             if self._current_asyncio_task and not self._current_asyncio_task.done():
                 self._current_asyncio_task.cancel()
             else:
-                # Edge case: between steps, no subtask active yet
                 if task:
                     self.task_queue.remove_task(task_id)
                     self._cleanup_task_folder(task_id)
                     await self._notify_user(task["user_id"], f"⚠️ Task `{task_id[:8]}` cancelled.")
         else:
-            # Task is queued but not yet running — safe to remove directly
             if task:
                 self.task_queue.remove_task(task_id)
                 self._cleanup_task_folder(task_id)

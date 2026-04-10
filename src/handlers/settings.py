@@ -3,12 +3,15 @@ from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 import os
 from pyrogram.enums import ParseMode
 
-RESOLUTION_OPTIONS = ["HDRip", "1080p", "720p", "480p"]
+RESOLUTION_OPTIONS = ["1080p", "720p", "480p"]
 PRESET_OPTIONS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
 CODEC_OPTIONS  = ["libx264", "libx265"]
 AUDIO_OPTIONS  = ["48k","64k","96k", "128k", "192k", "256k", "320k"]
 
 DEFAULT_FORMAT = "{title} S{season}E{episode} [{quality}] [{audio}].mkv"
+
+# (chat_id, msg_id) → user_id who owns that settings message
+_settings_owner: dict[tuple[int, int], int] = {}
 
 DEFAULT_PROFILES = {
     "1080p": {"crf": 23, "preset": "medium", "codec": "libx264", "audio_bitrate": "192k"},
@@ -35,8 +38,6 @@ def format_resolutions(settings):
 
 
 def format_profile_summary(profile, resolution):
-    if resolution == "HDRip":
-        return "  <i>HDRip</i> — metadata only <i>(no re-encode)</i>"
     crf    = profile.get("crf", 23)
     preset = profile.get("preset", "medium")
     codec  = profile.get("codec", "libx264")
@@ -76,7 +77,7 @@ def build_settings_text(name, username, user_id, settings, page: int = 0):
     # ── Page 0: core ─────────────────────────────────────────────────────────
     profile_lines = "\n".join(
         format_profile_summary(profiles.get(res, {}), res)
-        for res in ["HDRip", "1080p", "720p", "480p"]
+        for res in ["1080p", "720p", "480p"]
     )
     page0 = (
         "<b>Settings</b>  <code>(1 / 2)</code>\n\n"
@@ -188,7 +189,7 @@ def build_watermark_text(wm: dict, subtitle: str = "") -> str:
         f"Padding   : <code>{padding}%</code>\n"
         f"Timing    : {timing_str}\n"
         f"Position  : {position}\n\n"
-        "<i>HDRip jobs skip the watermark (stream-copy, no re-encode).</i>"
+        "<i>If nothing is available after the selected priority, no thumbnail is applied.</i>"
     )
 
 
@@ -231,9 +232,8 @@ def build_resolution_keyboard(settings):
         return f"☑ {res}" if res in selected else f"☐ {res}"
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn("HDRip"), callback_data="res_toggle_HDRip"),
-         InlineKeyboardButton(btn("1080p"), callback_data="res_toggle_1080p")],
-        [InlineKeyboardButton(btn("720p"),  callback_data="res_toggle_720p"),
+        [InlineKeyboardButton(btn("1080p"), callback_data="res_toggle_1080p"),
+         InlineKeyboardButton(btn("720p"),  callback_data="res_toggle_720p"),
          InlineKeyboardButton(btn("480p"),  callback_data="res_toggle_480p")],
         [InlineKeyboardButton("Back", callback_data="back_to_menu")],
     ])
@@ -489,51 +489,55 @@ def setup_settings_handlers(app: Client, user_settings, config):
         & (filters.private | filters.chat(config.allowed_group_ids))
     )
     async def us_command(client: Client, message: Message):
-        user_id = message.from_user.id
+        user_id  = message.from_user.id
+        is_group = not message.chat.id == user_id
+        chat_id  = message.chat.id
 
         if user_id not in config.admin_ids:
             await message.reply_text("Dukhi Atma!😔", parse_mode=ParseMode.HTML)
             return
 
-        try:
-            await client.get_chat(user_id)
-        except Exception:
-            bot_username = (await client.get_me()).username
-            await message.reply_text(
-                f"⚠️ Please start the bot in DM first.\n"
-                f"👉 @{bot_username} — press <b>Start</b>, then try again.",
-                parse_mode=ParseMode.HTML,
-            )
-            return
+        if not is_group:
+            try:
+                await client.get_chat(user_id)
+            except Exception:
+                bot_username = (await client.get_me()).username
+                await message.reply_text(
+                    f"⚠️ Please start the bot in DM first.\n"
+                    f"👉 @{bot_username} — press <b>Start</b>, then try again.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
 
         user     = message.from_user
         name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
         username = user.username or ""
         settings = user_settings(user_id).get()
 
-        text, total_pages  = build_settings_text(name, username, user_id, settings, page=0)
-        keyboard           = build_main_keyboard(page=0, total_pages=total_pages)
-        thumbnail_path     = get_thumbnail_path(settings, config)
+        text, total_pages = build_settings_text(name, username, user_id, settings, page=0)
+        keyboard          = build_main_keyboard(page=0, total_pages=total_pages)
+        thumbnail_path    = get_thumbnail_path(settings, config)
 
         try:
             if thumbnail_path:
-                await client.send_photo(
-                    chat_id=user_id,
+                sent = await client.send_photo(
+                    chat_id=chat_id,
                     photo=thumbnail_path,
                     caption=text,
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
             else:
-                await client.send_message(
-                    chat_id=user_id,
+                sent = await client.send_message(
+                    chat_id=chat_id,
                     text=text,
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML,
                 )
+            _settings_owner[(chat_id, sent.id)] = user_id
         except Exception:
             await message.reply_text(
-                "Couldn't send to your DM. Please /start the bot first.",
+                "Failed to send settings. Please try again.",
                 parse_mode=ParseMode.HTML,
             )
 
@@ -545,9 +549,13 @@ def setup_settings_handlers(app: Client, user_settings, config):
         user_id = user.id
         data    = callback_query.data
         message = callback_query.message
-
-        # ── Settings menu pagination ──────────────────────────────────────────
-
+        owner = _settings_owner.get((message.chat.id, message.id))
+        if owner is not None and owner != user_id:
+            await callback_query.answer("❌ This is not your settings menu.", show_alert=True)
+            return
+        if owner is None and user_id not in config.admin_ids:
+            await callback_query.answer("❌ This is not your settings menu.", show_alert=True)
+            return
         if data == "settings_noop":
             await callback_query.answer()
             return
@@ -561,8 +569,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
         elif data == "set_profiles":
             await message.edit_text(
                 "<b>Quality Profiles</b>\n\n"
-                "Select a resolution to customise its encoding settings.\n"
-                "<i>HDRip is metadata-only and cannot be configured.</i>",
+                "Select a resolution to customise its encoding settings.",
                 reply_markup=build_profiles_keyboard(),
                 parse_mode=ParseMode.HTML
             )
@@ -1238,10 +1245,11 @@ def setup_settings_handlers(app: Client, user_settings, config):
         name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
         username = user.username or ""
         settings = user_settings(user_id).get()
+        chat_id  = message.chat.id
 
-        text, total_pages  = build_settings_text(name, username, user_id, settings, page=page)
-        keyboard           = build_main_keyboard(page=page, total_pages=total_pages)
-        thumbnail_path     = get_thumbnail_path(settings, config)
+        text, total_pages = build_settings_text(name, username, user_id, settings, page=page)
+        keyboard          = build_main_keyboard(page=page, total_pages=total_pages)
+        thumbnail_path    = get_thumbnail_path(settings, config)
 
         try:
             if message.photo and thumbnail_path:
@@ -1251,27 +1259,29 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 )
             elif message.text and thumbnail_path:
                 await message.delete()
-                await client.send_photo(
-                    chat_id=user_id,
+                sent = await client.send_photo(
+                    chat_id=chat_id,
                     photo=thumbnail_path,
                     caption=text,
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML
                 )
+                _settings_owner[(chat_id, sent.id)] = user_id
             else:
                 await message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
         except Exception:
             try:
                 await message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
             except Exception:
-                await client.send_message(
-                    chat_id=user_id, text=text,
+                sent = await client.send_message(
+                    chat_id=chat_id, text=text,
                     reply_markup=keyboard, parse_mode=ParseMode.HTML
                 )
+                _settings_owner[(chat_id, sent.id)] = user_id
 
-    # ── Text input handler (DM only) ──────────────────────────────────────────
+    # ── Text input handler (DM + allowed groups) ──────────────────────────────
 
-    @app.on_message(filters.text & filters.private)
+    @app.on_message(filters.text & (filters.private | filters.chat(config.allowed_group_ids)))
     async def handle_text_input(client: Client, message: Message):
         user_id = message.from_user.id
         if message.text.startswith("/"):
@@ -1321,7 +1331,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
             except Exception:
                 pass
-            await _send_main_menu_dm(client, message, us, user_id, config)
+            await _send_main_menu(client, message, us, user_id, config)
 
         elif state == "waiting_meta_author":
             us.update_metadata(author=message.text)
@@ -1330,7 +1340,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
             except Exception:
                 pass
-            await _send_main_menu_dm(client, message, us, user_id, config)
+            await _send_main_menu(client, message, us, user_id, config)
 
         elif state == "waiting_meta_encoder":
             us.update_metadata(encoder=message.text)
@@ -1339,7 +1349,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
             except Exception:
                 pass
-            await _send_main_menu_dm(client, message, us, user_id, config)
+            await _send_main_menu(client, message, us, user_id, config)
 
         elif state == "waiting_format":
             import re as _re
@@ -1602,7 +1612,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
     # ── Thumbnail photo handler (DM only) ─────────────────────────────────────
 
-    @app.on_message(filters.photo & filters.private)
+    @app.on_message(filters.photo & (filters.private | filters.chat(config.allowed_group_ids)))
     async def handle_thumbnail(client: Client, message: Message):
         user_id = message.from_user.id
         us = user_settings(user_id)
@@ -1616,16 +1626,21 @@ def setup_settings_handlers(app: Client, user_settings, config):
         prompt_message_id = state_data.get("prompt_message_id")
 
         try:
-            thumb_dir  = config.paths.thumbnails
-            os.makedirs(thumb_dir, exist_ok=True)
-            thumb_path = os.path.join(thumb_dir, f"{user_id}.jpg")
+            # Download to a temp path (NOT inside thumbnails dir) so
+            # set_thumbnail can copy it to a UUID-named persistent file
+            # and then clean up this temp correctly.
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp_path = tmp.name
 
-            downloaded_path = await client.download_media(message, file_name=thumb_path)
+            downloaded_path = await client.download_media(message, file_name=tmp_path)
 
             if not downloaded_path or not os.path.exists(downloaded_path):
                 await message.reply_text("<b>Failed to save thumbnail.</b> Please try again.", parse_mode=ParseMode.HTML)
                 return
 
+            # set_thumbnail copies to UUID path, removes old thumb, and
+            # removes the source temp file automatically.
             us.set_thumbnail(os.path.abspath(downloaded_path))
             del us.temp_state[user_id]
 
@@ -1636,7 +1651,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
             await client.send_message(
                 chat_id=user_id,
-                text=build_thumbnail_text(us.get(), "Saved thumbnail updated ✓"),
+                text=build_thumbnail_text(us.get(), "Thumbnail saved ✓"),
                 reply_markup=build_thumbnail_keyboard(us.get()),
                 parse_mode=ParseMode.HTML
             )
@@ -1646,7 +1661,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
     # ── Font file document handler (DM only) ──────────────────────────────────
 
-    @app.on_message(filters.document & filters.private)
+    @app.on_message(filters.document & (filters.private | filters.chat(config.allowed_group_ids)))
     async def handle_font_upload(client: Client, message: Message):
         user_id = message.from_user.id
         us = user_settings(user_id)
@@ -1712,17 +1727,20 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
 # ── Private helper ────────────────────────────────────────────────────────────
 
-async def _send_main_menu_dm(client, message, us, user_id, config):
+async def _send_main_menu(client, message, us, user_id, config):
+    """Send (or re-send) the main settings menu to the same chat the message came from."""
     user     = message.from_user
     name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
     username = user.username or ""
     settings = us.get()
+    chat_id  = message.chat.id
     text, total_pages = build_settings_text(name, username, user_id, settings, page=0)
     keyboard = build_main_keyboard(page=0, total_pages=total_pages)
     thumb    = get_thumbnail_path(settings, config)
     if thumb:
-        await client.send_photo(chat_id=user_id, photo=thumb, caption=text,
-                                reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        sent = await client.send_photo(chat_id=chat_id, photo=thumb, caption=text,
+                                       reply_markup=keyboard, parse_mode=ParseMode.HTML)
     else:
-        await client.send_message(chat_id=user_id, text=text,
-                                  reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        sent = await client.send_message(chat_id=chat_id, text=text,
+                                         reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    _settings_owner[(chat_id, sent.id)] = user_id
