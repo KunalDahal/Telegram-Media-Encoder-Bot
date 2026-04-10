@@ -225,7 +225,7 @@ def _build_task_block(idx: int, task: dict) -> str:
     b += f"┠ Elapsed: {elapsed}\n"
     b += f"┠ User: {user_str}\n"
     b += f"┠ ID: <code>{user_id}</code>\n"
-    b += f"┖ /cancel <code>{task_id[:8]}</code>"
+    b += f"┖ <code>/cancel {task_id[:8]}</code>"
     return b
 
 

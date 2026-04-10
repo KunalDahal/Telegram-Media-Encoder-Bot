@@ -7,6 +7,8 @@ class Downloader:
         self.task_queue = task_queue
         self.task_id    = task_id
         self._start_time = None
+        self._last_cb_time  = None  
+        self._last_cb_bytes = 0      
 
         os.makedirs(self.temp_base, exist_ok=True)
 
@@ -95,12 +97,24 @@ class Downloader:
 
         if self.download_progress["total_size"] == 0 and total:
             self.download_progress["total_size"] = total
-        elapsed = max(time.time() - self._start_time, 1) if self._start_time else 1
-        speed   = current / elapsed
 
-        percentage    = (current / total * 100) if total > 0 else 0
-        eta           = int((total - current) / speed) if speed > 0 and total > current else 0
-        total_elapsed = int(time.time() - self._start_time) if self._start_time else 0
+        total_elapsed = int(now - self._start_time) if self._start_time else 1
+
+        if self._last_cb_time is None:
+            self._last_cb_time  = now
+            self._last_cb_bytes = current
+            speed = 0.0
+        else:
+            interval = now - self._last_cb_time
+            if interval >= 0.5:
+                speed = max(0.0, (current - self._last_cb_bytes) / interval)
+                self._last_cb_time  = now
+                self._last_cb_bytes = current
+            else:
+                speed = self.download_progress.get("speed", 0.0)
+
+        percentage = (current / total * 100) if total > 0 else 0
+        eta        = int((total - current) / speed) if speed > 0 and total > current else 0
 
         self.download_progress.update({
             "downloaded": current,
@@ -137,6 +151,8 @@ class Downloader:
             "status":     "idle",
         }
         self._start_time    = None
+        self._last_cb_time  = None
+        self._last_cb_bytes = 0
         self._declared_size = getattr(self, "_declared_size", 0)
 
     def get_progress(self) -> dict:

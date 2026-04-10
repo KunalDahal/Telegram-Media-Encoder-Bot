@@ -42,6 +42,24 @@ async def fetch_media_group(client: Client, chat_id: int, replied: Message) -> l
     return group
 
 
+async def fetch_sequential_messages(
+    client: Client, chat_id: int, start_id: int, count: int
+) -> list:
+    """Fetch `count` messages starting from `start_id` (inclusive), regardless of media group."""
+    ids = list(range(start_id, start_id + count))
+    try:
+        messages = await client.get_messages(chat_id, ids)
+    except Exception as exc:
+        logger.error(f"[rename] fetch_sequential_messages error: {exc}")
+        return []
+    result = [
+        m for m in messages
+        if m and not getattr(m, "empty", True) and (m.video or m.document)
+    ]
+    result.sort(key=lambda m: m.id)
+    return result
+
+
 async def _check_access(client, message: Message, config) -> bool:
     user_id = message.from_user.id
     if user_id not in config.admin_ids:
@@ -98,24 +116,36 @@ def _is_video_message(msg: Message) -> bool:
 def _parse_rename_command(message_text: str):
     text = re.sub(r"^/\S+\s*", "", message_text).strip()
 
-    is_batch = False
+    is_batch    = False
+    batch_count = None  
+
     if text.startswith("-b"):
-        rest = text[2:].lstrip()
+        rest = text[2:]  
+        num_match = re.match(r"^\s+(\d+)\s*(.*)", rest, re.DOTALL)
+        if num_match:
+            batch_count = int(num_match.group(1))
+            if batch_count < 2:
+                return False, None, None, "`-b <N>` requires N ≥ 2."
+            rest = num_match.group(2).strip()
+        else:
+            rest = rest.lstrip()
+
         if not rest:
-            return True, None, "Please provide a filename template after `-b`."
+            return True, None, None, "Please provide a filename template after `-b`."
+
         is_batch = True
         text = rest
 
     if not text:
-        return is_batch, None, "Please provide a filename."
+        return is_batch, batch_count, None, "Please provide a filename."
     if (text.startswith('"') and text.endswith('"')) or \
        (text.startswith("'") and text.endswith("'")):
         text = text[1:-1]
 
     if not text:
-        return is_batch, None, "Filename cannot be empty."
+        return is_batch, batch_count, None, "Filename cannot be empty."
 
-    return is_batch, text, None
+    return is_batch, batch_count, text, None
 
 
 def _validate_batch_template(template: str):
@@ -131,12 +161,6 @@ def _validate_batch_template(template: str):
 
 
 def _resolve_template(template: str, season_str: str, ep_str: str) -> str:
-    """Replace {season} and {episode} with pre-formatted strings.
-
-    The caller is responsible for zero-padding to the correct width so that
-    the total digit count matches the user's placeholder (e.g. ``01`` → always
-    two digits, ``001`` → always three digits, etc.).
-    """
     filename = template
     filename = filename.replace("{season}",  season_str)
     filename = filename.replace("{episode}", ep_str)
@@ -267,24 +291,21 @@ async def _process_batch_rename(
     client: Client,
     message: Message,
     template: str,
+    batch_count,          # None = media-group, int = sequential
     task_queue,
     user_settings,
 ):
     if not message.reply_to_message:
         await message.reply_text(
-            "Reply to the **first** file of a media group (album).\n\n"
-            "Usage: `/rename -b [S{season}-E{episode}] Show Name.mkv`"
+            "Reply to the **first** file.\n\n"
+            "Usage:\n"
+            "  Media group : `/rename -b [S{season}-E{episode}] Show Name.mkv`\n"
+            "  Sequential  : `/rename -b 6 [S{season}-E{episode}] Show Name.mkv`"
         )
         return
 
     replied = message.reply_to_message
 
-    if not replied.media_group_id:
-        await message.reply_text(
-            "The replied message is not part of a media group (album).\n"
-            "Send your files together as an album, then reply to the first one."
-        )
-        return
     ok, err = _validate_batch_template(template)
     if not ok:
         await message.reply_text(f"❌ {err}")
@@ -302,8 +323,6 @@ async def _process_batch_rename(
     settings     = copy.deepcopy(settings_obj.get())
     watermark    = settings_obj.get_watermark()
 
-    # Read as raw strings to preserve leading-zero width chosen by the user.
-    # e.g. "1" → width 1 (no padding), "01" → width 2, "001" → width 3, …
     season_raw  = str(settings.get("default_season",        "1"))
     episode_raw = str(settings.get("default_start_episode", "1"))
 
@@ -311,22 +330,36 @@ async def _process_batch_rename(
     ep_width     = len(episode_raw)
     season_int   = int(season_raw)
     ep_int       = int(episode_raw)
+    season_str   = str(season_int).zfill(season_width)
 
-    # Season never increments across a batch, so build it once.
-    season_str = str(season_int).zfill(season_width)
+    # ── Fetch files ───────────────────────────────────────────────────────────
+    if batch_count is not None:
+        status_msg  = await message.reply_text(f"⏳ Fetching {batch_count} messages…")
+        raw_msgs    = await fetch_sequential_messages(
+            client, message.chat.id, replied.id, batch_count
+        )
+    else:
+        if not replied.media_group_id:
+            await message.reply_text(
+                "The replied message is not part of a media group (album).\n"
+                "Send your files together as an album and reply to the first one,\n"
+                "or use `-b <N>` to grab N individual messages starting from the replied one."
+            )
+            return
+        status_msg  = await message.reply_text("⏳ Fetching media group…")
+        raw_msgs    = await fetch_media_group(client, message.chat.id, replied)
 
-    status_msg  = await message.reply_text("⏳ Fetching media group…")
-    media_group = await fetch_media_group(client, message.chat.id, replied)
-
-    if not media_group:
+    if not raw_msgs:
         await status_msg.edit_text(
-            "Could not find any media in the album.\n"
-            "Make sure you replied to the first file of the group."
+            "Could not find any media messages.\n"
+            + ("Make sure you replied to the first file of the group." if batch_count is None
+               else f"No video/document messages found in the next {batch_count} message IDs.")
         )
         return
+
     valid_files: list[Message] = []
     skipped = 0
-    for mg_msg in media_group:
+    for mg_msg in raw_msgs:
         if _is_video_message(mg_msg):
             valid_files.append(mg_msg)
         else:
@@ -334,7 +367,7 @@ async def _process_batch_rename(
 
     if not valid_files:
         await status_msg.edit_text(
-            f"No supported video files found in the album.\n"
+            f"No supported video files found.\n"
             f"Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}"
         )
         return
@@ -369,7 +402,6 @@ async def _process_batch_rename(
         task_ids.append(task_id)
         positions.append(position)
 
-    # Summary
     ep_start = str(episodes[0]).zfill(ep_width)
     ep_end   = str(episodes[-1]).zfill(ep_width)
     pos_min  = min(positions)
@@ -383,8 +415,9 @@ async def _process_batch_rename(
         else "rename + metadata"
     )
 
+    mode_label = f"sequential ({batch_count} msgs)" if batch_count else "media group"
     lines = [
-        f"Queued **{len(valid_files)}** rename task(s) successfully.\n",
+        f"Queued **{len(valid_files)}** rename task(s) successfully. _{mode_label}_\n",
         f"**Season:** {season_str}",
         f"**Episodes:** {ep_start} → {ep_end}",
         f"**Mode:** {mode}",
@@ -405,19 +438,22 @@ async def process_rename_command(
     task_queue,
     user_settings,
 ):
-    is_batch, filename, parse_error = _parse_rename_command(message.text)
+    is_batch, batch_count, filename, parse_error = _parse_rename_command(message.text)
 
     if parse_error:
         await message.reply_text(
             f"❌ {parse_error}\n\n"
             "Usage:\n"
-            "  Single: `/rename movie.mkv`\n"
-            "  Batch:  `/rename -b [S{season}-E{episode}] Show.mkv`"
+            "  Single     : `/rename movie.mkv`\n"
+            "  Batch group: `/rename -b [S{season}-E{episode}] Show.mkv`\n"
+            "  Batch seq  : `/rename -b 6 [S{season}-E{episode}] Show.mkv`"
         )
         return
 
     if is_batch:
-        await _process_batch_rename(client, message, filename, task_queue, user_settings)
+        await _process_batch_rename(
+            client, message, filename, batch_count, task_queue, user_settings
+        )
     else:
         await _process_single_rename(client, message, filename, task_queue, user_settings)
 

@@ -55,14 +55,25 @@ def parse_encode_args(command_text: str):
     if not t_match:
         return None, (
             "`-t <title>` is required and must be the last flag.\n\n"
-            "Usage: `/encode [-b] [-s S] [-e E] [-a AUDIO] [-q QUALITY] -t Title`"
+            "Usage: `/encode [-b [N]] [-s S] [-e E] [-a AUDIO] [-q QUALITY] -t Title`"
         )
 
     title = t_match.group(1).strip()
     if not title:
         return None, "Title cannot be empty after `-t`."
     pre_t = text[: t_match.start()]
-    batch = bool(re.search(r"(?:^|\s)-b(?:\s|$)", pre_t))
+
+    # ── -b flag: plain "-b" = media group, "-b N" = N sequential messages ────
+    batch       = False
+    batch_count = None
+    b_match = re.search(r"(?:^|\s)-b(?:\s+(\d+))?(?=\s|$)", pre_t)
+    if b_match:
+        batch = True
+        if b_match.group(1):
+            batch_count = int(b_match.group(1))
+            if batch_count < 2:
+                return None, "`-b <N>` requires N ≥ 2 (use `/encode` without `-b` for a single file)."
+
     season = None
     m = re.search(r"(?:^|\s)-s\s+(\d+)", pre_t)
     if m:
@@ -91,12 +102,13 @@ def parse_encode_args(command_text: str):
             )
 
     return {
-        "batch":   batch,
-        "season":  season,
-        "episode": episode,
-        "audio":   audio,  
-        "quality": quality, 
-        "title":   title,
+        "batch":       batch,
+        "batch_count": batch_count,   # None = media-group mode, int = sequential mode
+        "season":      season,
+        "episode":     episode,
+        "audio":       audio,
+        "quality":     quality,
+        "title":       title,
     }, None
 
 
@@ -184,9 +196,10 @@ def build_jobs(base_filename, resolutions, user_settings_obj, base_metadata):
     return jobs
 
 
-# ── Media-group fetcher ───────────────────────────────────────────────────────
+# ── Media fetchers ────────────────────────────────────────────────────────────
 
 async def fetch_media_group(client: Client, chat_id: int, replied: Message) -> list:
+    """Fetch all messages that belong to the same media group as `replied`."""
     media_group_id = replied.media_group_id
     start_id = max(1, replied.id - 3)
     end_id   = replied.id + 20
@@ -205,6 +218,24 @@ async def fetch_media_group(client: Client, chat_id: int, replied: Message) -> l
     ]
     group.sort(key=lambda m: m.id)
     return group
+
+
+async def fetch_sequential_messages(
+    client: Client, chat_id: int, start_id: int, count: int
+) -> list:
+    """Fetch `count` messages starting from `start_id` (inclusive), regardless of media group."""
+    ids = list(range(start_id, start_id + count))
+    try:
+        messages = await client.get_messages(chat_id, ids)
+    except Exception as exc:
+        logger.error(f"[encode] fetch_sequential_messages error: {exc}")
+        return []
+    result = [
+        m for m in messages
+        if m and not getattr(m, "empty", True) and (m.video or m.document)
+    ]
+    result.sort(key=lambda m: m.id)
+    return result
 
 
 # ── Value resolver ────────────────────────────────────────────────────────────
@@ -330,15 +361,9 @@ async def process_batch_encode(
     user_settings,
     args: dict,
 ):
-    user_id = message.from_user.id
-    replied = message.reply_to_message
-
-    if not replied.media_group_id:
-        await message.reply_text(
-            "The replied message is not part of a media group (album).\n"
-            "Send your files together as an album, then reply to the first one."
-        )
-        return
+    user_id     = message.from_user.id
+    replied     = message.reply_to_message
+    batch_count = args.get("batch_count")   # None = media-group, int = sequential
 
     settings_obj  = user_settings(user_id)
     settings      = copy.deepcopy(settings_obj.get())
@@ -363,18 +388,37 @@ async def process_batch_encode(
         selected_resolutions = [args["quality"]]
     else:
         selected_resolutions = get_selected_resolutions(settings)
-    status_msg  = await message.reply_text("⏳ Fetching media group…")
-    media_group = await fetch_media_group(client, message.chat.id, replied)
 
-    if not media_group:
+    # ── Fetch file list ───────────────────────────────────────────────────────
+    if batch_count is not None:
+        # Sequential mode: grab N messages starting from the replied message
+        status_msg  = await message.reply_text(f"⏳ Fetching {batch_count} messages…")
+        raw_msgs    = await fetch_sequential_messages(
+            client, message.chat.id, replied.id, batch_count
+        )
+    else:
+        # Media-group mode (original behaviour)
+        if not replied.media_group_id:
+            await message.reply_text(
+                "The replied message is not part of a media group (album).\n"
+                "Send your files together as an album and reply to the first one,\n"
+                "or use `-b <N>` to grab N individual messages starting from the replied one."
+            )
+            return
+        status_msg  = await message.reply_text("⏳ Fetching media group…")
+        raw_msgs    = await fetch_media_group(client, message.chat.id, replied)
+
+    if not raw_msgs:
         await status_msg.edit_text(
-            "Could not find any media in the album.\n"
-            "Make sure you replied to the first file of the group."
+            "Could not find any media messages.\n"
+            + ("Make sure you replied to the first file of the group." if batch_count is None
+               else f"No messages with video/document found in the next {batch_count} message IDs.")
         )
         return
+
     valid_files = []
     skipped     = 0
-    for m in media_group:
+    for m in raw_msgs:
         if m.video:
             valid_files.append(m)
         elif m.document:
@@ -388,7 +432,7 @@ async def process_batch_encode(
 
     if not valid_files:
         await status_msg.edit_text(
-            f"No supported video files found in the album.\n"
+            f"No supported video files found.\n"
             f"Supported: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}"
         )
         return
@@ -398,7 +442,7 @@ async def process_batch_encode(
 
     task_ids  = []
     positions = []
-    episodes  = []    # stores raw int values for summary range display
+    episodes  = []
 
     for index, media_msg in enumerate(valid_files):
         ep_num = ep_int + index
@@ -464,8 +508,9 @@ async def process_batch_encode(
     pos_text = f"[{pos_min}]" if pos_min == pos_max else f"[{pos_min} – {pos_max}]"
     res_text = " → ".join(selected_resolutions)
 
+    mode_label = f"sequential ({batch_count} msgs)" if batch_count else "media group"
     lines = [
-        f"✅ Queued **{len(valid_files)}** file(s) successfully.\n",
+        f"✅ Queued **{len(valid_files)}** file(s) successfully. _{mode_label}_\n",
         f"**Title:**    {title}",
         f"**Season:**   {season_str}",
         f"**Episodes:** {ep_start} → {ep_end}",
@@ -492,19 +537,20 @@ async def process_encode_command(
     if not message.reply_to_message:
         await message.reply_text(
             "Reply to a video file and use:\n\n"
-            "`/encode [-b] [-s SEASON] [-e EPISODE] [-a AUDIO] [-q QUALITY] -t Title`\n\n"
+            "`/encode [-b [N]] [-s SEASON] [-e EPISODE] [-a AUDIO] [-q QUALITY] -t Title`\n\n"
             "Examples:\n"
             "`/encode -t Pokemon`\n"
             "`/encode -e 12 -t Pokemon`\n"
             "`/encode -s 2 -e 5 -a DUAL -t Pokemon Season 2`\n"
-            "`/encode -b -s 1 -e 1 -t Pokemon`  ← batch mode"
+            "`/encode -b -s 1 -e 1 -t Pokemon`  ← batch (media group)\n"
+            "`/encode -b 6 -e 1 -t Pokemon`     ← batch (6 sequential msgs)"
         )
         return
 
     if len(message.command) < 2:
         await message.reply_text(
             "Missing arguments. `-t <title>` is required.\n\n"
-            "Usage: `/encode [-b] [-s S] [-e E] [-a AUDIO] [-q QUALITY] -t Title`"
+            "Usage: `/encode [-b [N]] [-s S] [-e E] [-a AUDIO] [-q QUALITY] -t Title`"
         )
         return
 
