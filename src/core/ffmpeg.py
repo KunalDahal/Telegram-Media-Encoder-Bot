@@ -62,29 +62,12 @@ def _build_random_intervals(
     repeat_count: int,
     per_duration: float,
 ) -> list[tuple[float, float]]:
-    """Return a list of (start, end) tuples for non-overlapping watermark windows.
-
-    Strategy
-    --------
-    1.  Clamp inputs so the request is physically feasible:
-        - per_duration can be at most video_duration / repeat_count  (so all
-          appearances fit end-to-end with no overlap).
-        - repeat_count is reduced to at most floor(video_duration / per_duration)
-          if per_duration × repeat_count > video_duration.
-    2.  Divide the (clamped) video timeline into `repeat_count` equal sections.
-    3.  Inside each section, place the window randomly, ensuring:
-        - The window starts at least 0 s into the section (no negative offset).
-        - The window ends before the section boundary.
-        - A small jitter around the section midpoint is used for natural placement.
-    """
     if video_duration <= 0 or repeat_count <= 0 or per_duration <= 0:
         return []
 
     # ── Feasibility clamp ─────────────────────────────────────────────────────
     max_fits = max(1, int(video_duration / per_duration))
     repeat_count = min(repeat_count, max_fits)
-
-    # Also clamp per_duration so it fits inside one equal section
     section_len = video_duration / repeat_count
     per_duration = min(per_duration, section_len)
 
@@ -92,15 +75,10 @@ def _build_random_intervals(
     for i in range(repeat_count):
         sec_start = i * section_len
         sec_end   = sec_start + section_len
-
-        # Available start range inside this section
         latest_start = sec_end - per_duration
         if latest_start < sec_start:
-            # Section too short — just start at section begin
             start = sec_start
         else:
-            # Jitter: pick randomly between sec_start and latest_start,
-            # biased toward the middle third for a natural look.
             mid_lo = sec_start + (section_len - per_duration) * 0.25
             mid_hi = sec_start + (section_len - per_duration) * 0.75
             mid_lo = max(sec_start, min(mid_lo, latest_start))
@@ -195,36 +173,29 @@ class FFmpeg:
             video_duration = 0.0
 
         # ── Build enable= expression ──────────────────────────────────────────
-        enable_expr = ""  # empty → always visible
+        enable_expr = ""
 
         if timing_mode == "full":
-            # No enable= needed — visible for the entire video
             enable_expr = ""
 
         elif timing_mode == "range":
-            # start/end are stored as integer seconds
             start_sec = max(0, int(wm.get("start", 0)))
             end_sec   = int(wm.get("end", 0))
             if end_sec <= start_sec:
-                # Degenerate range → fall back to full duration
                 end_sec = int(video_duration) if video_duration > 0 else 0
             if not (start_sec == 0 and end_sec == 0):
                 enable_expr = f"between(t,{start_sec},{end_sec})"
 
         elif timing_mode == "random_duration":
-            # Multi-appearance: divide video into sections, place one window
-            # per section at a random (middle-biased) position.
             per_duration = max(1, int(wm.get("duration", 30)))
             repeat_count = max(1, int(wm.get("repeat_count", 1)))
 
             intervals = _build_random_intervals(video_duration, repeat_count, per_duration)
 
             if intervals:
-                # FFmpeg enable= uses '+' for boolean OR between conditions
                 clauses = [f"between(t,{s},{e})" for s, e in intervals]
                 enable_expr = "+".join(clauses)
             else:
-                # Fallback: show for full duration if we couldn't compute intervals
                 enable_expr = ""
 
         # ── Assemble drawtext filter ──────────────────────────────────────────
@@ -295,9 +266,6 @@ class FFmpeg:
         video_codec = settings.get("codec", "libx264")
         if video_codec not in ("libx264", "libx265", "h264", "h265"):
             video_codec = "libx264"
-
-        # Never upscale: cap each dimension at the source value.
-        # The trailing scale ensures even dimensions required by yuv420p.
         scale_pad = (
             f"scale='min({width},iw)':'min({height},ih)'"
             f":force_original_aspect_ratio=decrease"
