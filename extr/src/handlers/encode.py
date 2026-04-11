@@ -4,7 +4,6 @@ import re
 from datetime import datetime
 
 from pyrogram import Client, filters
-from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import Message
 import logging
 
@@ -15,22 +14,6 @@ ALLOWED_VIDEO_EXTENSIONS = {
     ".mpeg", ".mpg", ".wmv", ".flv", ".3gp",
 }
 SUPPORTED_RESOLUTIONS = ["1080p", "720p", "480p"]
-
-
-async def _safe_edit(msg, text: str):
-    try:
-        await msg.edit_text(text)
-    except MessageNotModified:
-        pass
-    except FloodWait as e:
-        import asyncio
-        await asyncio.sleep(e.value)
-        try:
-            await msg.edit_text(text)
-        except Exception:
-            pass
-    except Exception:
-        pass
 
 # ── Access guard ──────────────────────────────────────────────────────────────
 
@@ -53,12 +36,7 @@ async def _check_access(client, message: Message, config) -> bool:
 
 # ── Command parser ────────────────────────────────────────────────────────────
 
-def _parse_encode_command(message) -> tuple:
-    """Parse encode command from a Pyrogram Message object.
-    Uses message.text to preserve special characters like @, [, ] intact.
-    """
-    text = message.text or ""
-    # Strip the command prefix (/e, /encode, /e@botname, etc.)
+def _parse_encode_command(text: str):
     text = re.sub(r"^/\S+\s*", "", text).strip()
 
     batch       = False
@@ -81,13 +59,6 @@ def _parse_encode_command(message) -> tuple:
 
     if not template:
         return False, None, None, "Please provide a filename template."
-
-    if (template.startswith('"') and template.endswith('"')) or \
-       (template.startswith("'") and template.endswith("'")):
-        template = template[1:-1]
-
-    if not template:
-        return False, None, None, "Filename template cannot be empty."
 
     dummy = re.sub(r"\{[^}]+\}", "X", template)
     ext   = os.path.splitext(dummy)[1].lower()
@@ -287,7 +258,7 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
     skipped     = len(raw_msgs) - len(valid_files)
 
     if not valid_files:
-        await _safe_edit(status_msg, "No supported video files found.")
+        await status_msg.edit_text("No supported video files found.")
         return
 
     resolutions = get_selected_resolutions(settings)
@@ -352,7 +323,7 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
         lines.append(f"**Skipped:** {skipped} non-video file(s)")
     lines.append("\nOutput will be delivered to your DM.")
 
-    await _safe_edit(status_msg, "\n".join(lines))
+    await status_msg.edit_text("\n".join(lines))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -372,9 +343,11 @@ async def process_encode_command(client: Client, message: Message, task_queue, u
         )
         return
 
-    batch, batch_count, template, error = _parse_encode_command(message)
-    if not template and not error:
-        error = "Missing filename template. Reply to a video and try again."
+    if len(message.command) < 2:
+        await message.reply_text("Missing filename template. Reply to a video and try again.")
+        return
+
+    batch, batch_count, template, error = _parse_encode_command(message.text)
     if error:
         await message.reply_text(f"❌ {error}")
         return

@@ -4,7 +4,6 @@ import re
 from datetime import datetime
 
 from pyrogram import Client, filters
-from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import Message
 import logging
 
@@ -18,22 +17,6 @@ ALLOWED_VIDEO_EXTENSIONS = {
 
 _SUPPORTED_PLACEHOLDERS = {"season", "episode"}
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
-
-
-async def _safe_edit(msg, text: str):
-    try:
-        await msg.edit_text(text)
-    except MessageNotModified:
-        pass
-    except FloodWait as e:
-        import asyncio
-        await asyncio.sleep(e.value)
-        try:
-            await msg.edit_text(text)
-        except Exception:
-            pass
-    except Exception:
-        pass
 
 
 # ── Guard helpers ─────────────────────────────────────────────────────────────
@@ -136,8 +119,7 @@ def _is_video_message(msg: Message) -> bool:
 
 # ── Command parsing ───────────────────────────────────────────────────────────
 
-def _parse_rename_command(message):
-    message_text = message.text or ""
+def _parse_rename_command(message_text: str):
     text = re.sub(r"^/\S+\s*", "", message_text).strip()
 
     is_batch    = False
@@ -350,8 +332,8 @@ async def _process_batch_rename(
     season_raw  = str(settings.get("default_season",        "1"))
     episode_raw = str(settings.get("default_start_episode", "1"))
 
-    season_width = max(len(season_raw), 1)
-    ep_width     = max(len(episode_raw), 2)  # always at least 2 digits: 01, 02 …
+    season_width = len(season_raw)
+    ep_width     = len(episode_raw)
     season_int   = int(season_raw)
     ep_int       = int(episode_raw)
     season_str   = str(season_int).zfill(season_width)
@@ -374,8 +356,7 @@ async def _process_batch_rename(
         raw_msgs    = await fetch_media_group(client, message.chat.id, replied)
 
     if not raw_msgs:
-        await _safe_edit(
-            status_msg,
+        await status_msg.edit_text(
             "Could not find any media messages.\n"
             + ("Make sure you replied to the first file of the group." if batch_count is None
                else f"No video/document messages found in the next {batch_count} message IDs.")
@@ -391,8 +372,7 @@ async def _process_batch_rename(
             skipped += 1
 
     if not valid_files:
-        await _safe_edit(
-            status_msg,
+        await status_msg.edit_text(
             f"No supported video files found.\n"
             f"Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}"
         )
@@ -448,7 +428,7 @@ async def _process_batch_rename(
         lines.append(f"**Skipped:** {skipped} non-video file(s)")
     lines.append("\n**Output will be delivered to your DM.** Please wait patiently.")
 
-    await _safe_edit(status_msg, "\n".join(lines))
+    await status_msg.edit_text("\n".join(lines))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -459,7 +439,7 @@ async def process_rename_command(
     task_queue,
     user_settings,
 ):
-    is_batch, batch_count, filename, parse_error = _parse_rename_command(message)
+    is_batch, batch_count, filename, parse_error = _parse_rename_command(message.text)
 
     if parse_error:
         await message.reply_text(
