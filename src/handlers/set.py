@@ -1,5 +1,4 @@
 import os
-import tempfile
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -17,6 +16,7 @@ def setup_set_handlers(app: Client, user_settings, config):
         if user_id not in config.admin_ids:
             await message.reply_text("Dukhi Atma!😔")
             return
+
         replied = message.reply_to_message
         if not replied:
             await message.reply_text(
@@ -25,8 +25,8 @@ def setup_set_handlers(app: Client, user_settings, config):
             )
             return
 
-        is_photo    = bool(replied.photo)
-        is_img_doc  = (
+        is_photo   = bool(replied.photo)
+        is_img_doc = (
             replied.document
             and (replied.document.mime_type or "").startswith("image/")
         )
@@ -39,10 +39,11 @@ def setup_set_handlers(app: Client, user_settings, config):
             return
 
         try:
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                tmp_path = tmp.name
+            thumb_dir = config.paths.thumbnails
+            os.makedirs(thumb_dir, exist_ok=True)
+            dest_path = os.path.join(thumb_dir, f"{user_id}.jpg")
 
-            downloaded = await client.download_media(replied, file_name=tmp_path)
+            downloaded = await client.download_media(replied, file_name=dest_path)
 
             if not downloaded or not os.path.exists(downloaded):
                 await message.reply_text("Failed to download the image. Please try again.")

@@ -45,7 +45,6 @@ async def fetch_media_group(client: Client, chat_id: int, replied: Message) -> l
 async def fetch_sequential_messages(
     client: Client, chat_id: int, start_id: int, count: int
 ) -> list:
-    """Fetch `count` messages starting from `start_id` (inclusive), regardless of media group."""
     ids = list(range(start_id, start_id + count))
     try:
         messages = await client.get_messages(chat_id, ids)
@@ -85,7 +84,6 @@ def _valid_extension(filename: str) -> bool:
 
 
 def _file_info(media_msg: Message):
-    """Return (file_id, original_file_name, file_size) from a media message."""
     if media_msg.video:
         v = media_msg.video
         return (
@@ -299,7 +297,7 @@ async def _process_batch_rename(
     client: Client,
     message: Message,
     template: str,
-    batch_count,          # None = media-group, int = sequential
+    batch_count,     
     task_queue,
     user_settings,
 ):
@@ -421,12 +419,11 @@ async def _process_batch_rename(
 
     mode_label = f"sequential ({batch_count} msgs)" if batch_count else "media group"
     lines = [
-        f"Queued **{len(valid_files)}** rename task(s) successfully. _{mode_label}_\n",
-        f"**Season:** {season_str}",
-        f"**Episodes:** {ep_start} → {ep_end}",
-        f"**Mode:** {mode}",
-        f"**Queue position(s):** {pos_text}",
-    ]
+    f"Added {len(valid_files)} rename task(s) to the queue {pos_text}. ({mode_label})\n",
+    f"Season: {season_str}",
+    f"Episodes: {ep_start} to {ep_end}",
+    f"Mode: {mode}",
+]
     if skipped:
         lines.append(f"**Skipped:** {skipped} non-video file(s)")
     lines.append("\n**Output will be delivered to your DM.** Please wait patiently.")

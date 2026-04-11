@@ -113,8 +113,6 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
 
         chat_id = callback_query.message.chat.id
         msg_id  = callback_query.message.id
-
-        # Only update the message that /status originally sent for this chat
         if _active_status.get(chat_id) != msg_id:
             return
 

@@ -8,9 +8,6 @@ PRESET_OPTIONS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "mediu
 CODEC_OPTIONS  = ["libx264", "libx265"]
 AUDIO_OPTIONS  = ["48k","64k","96k", "128k", "192k", "256k", "320k"]
 
-DEFAULT_FORMAT = "{title} S{season}E{episode} [{quality}] [{audio}].mkv"
-
-# (chat_id, msg_id) → user_id who owns that settings message
 _settings_owner: dict[tuple[int, int], int] = {}
 
 DEFAULT_PROFILES = {
@@ -87,7 +84,7 @@ def build_settings_text(name, username, user_id, settings, page: int = 0):
         f"<b>Resolutions:</b>  <code>{format_resolutions(settings)}</code>\n"
         "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
         "<b>Quality Profiles:</b>\n"
-        f"\t\t\t\t{profile_lines}\n"
+        f"{profile_lines}\n"
         "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
         f"<b>Send Type:</b>  <code>{send_type}</code>\n"
         f"<b>Thumbnail:</b>  {thumb_status}\n"
@@ -98,14 +95,13 @@ def build_settings_text(name, username, user_id, settings, page: int = 0):
         "<b>Settings</b>  <code>(2 / 2)</code>\n\n"
         "------------------\n"
         "<b>Metadata:</b>\n\n"
-        f"\t\t\t\tTitle   :  <code>{meta.get('title') or '-'}</code>\n"
-        f"\t\t\t\tAuthor  :  <code>{meta.get('author') or '-'}</code>\n"
-        f"\t\t\t\tEncoder :  <code>{meta.get('encoder') or '-'}</code>\n"
+        f"Title   :  <code>{meta.get('title') or '-'}</code>\n"
+        f"Author  :  <code>{meta.get('author') or '-'}</code>\n"
+        f"Encoder :  <code>{meta.get('encoder') or '-'}</code>\n"
         "------------------\n"
-        f"<b>Watermark:</b>  {wm_summary}\n"
+        f"<b>Watermark:</b> {wm_summary}\n"
         "------------------\n"
-        "<b>Start Episode:</b>\n\n"
-        f"\t\t\t\tEpisode :  <code>{ep}</code>\n"
+        "<b>Start Episode: <code>{ep}</code></b>\n"
         "------------------\n"
     )
 
@@ -132,16 +128,13 @@ def build_profile_text(resolution, profile, subtitle=""):
 
 
 def _secs_to_mmss(seconds: int) -> str:
-    """Convert an integer number of seconds to MM:SS display string."""
     seconds = max(0, int(seconds))
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
 
 def _mmss_to_secs(mmss: str) -> int:
-    """Parse a MM:SS string into integer seconds. Raises ValueError on bad input."""
     mmss = mmss.strip()
     if ":" not in mmss:
-        # Allow bare seconds as a convenience (e.g. "90" → 90 s)
         return int(mmss)
     parts = mmss.split(":", 1)
     minutes = int(parts[0])
@@ -171,7 +164,6 @@ def build_watermark_text(wm: dict, subtitle: str = "") -> str:
         end_mmss   = _secs_to_mmss(wm.get("end", 0))
         timing_str = f"Range  <code>{start_mmss} → {end_mmss}</code>"
     else:
-        # random_duration
         repeat   = wm.get("repeat_count", 1)
         duration = wm.get("duration", 30)
         timing_str = (
@@ -342,7 +334,6 @@ def build_wm_timing_keyboard(current_mode: str) -> InlineKeyboardMarkup:
 
 
 def build_wm_random_keyboard(wm: dict) -> InlineKeyboardMarkup:
-    """Sub-menu keyboard for the Random Duration timing mode."""
     repeat   = wm.get("repeat_count", 1)
     duration = wm.get("duration", 30)
     return InlineKeyboardMarkup([
@@ -428,46 +419,6 @@ def build_start_episode_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("Back", callback_data="back_to_menu")],
     ])
 
-
-# ── Format helpers ────────────────────────────────────────────────────────────
-
-PLACEHOLDER_HELP = (
-    "<b>Available placeholders:</b>\n"
-    ""
-    "<code>{title}</code>     — show / movie title  <b>(required)</b>\n"
-    "<code>{episode}</code>   — episode number      <b>(required)</b>  uses saved Episode or <code>-e</code>\n"
-    "<code>{quality}</code>   — resolution tag      <b>(required)</b>\n"
-    "<code>{season}</code>    — season number       <i>(optional)</i>  uses saved Season or <code>-s</code>\n"
-    "<code>{audio}</code>     — audio type/lang     <i>(optional)</i>  uses saved Audio or <code>-a</code>"
-    ""
-)
-
-
-def build_format_text(fmt: str, subtitle: str = "") -> str:
-    extra = f"\n<i>{subtitle}</i>" if subtitle else ""
-    preview = (
-        fmt
-        .replace("{title}",   "<i>Title</i>")
-        .replace("{season}",  "<i>01</i>")
-        .replace("{episode}", "<i>01</i>")
-        .replace("{quality}", "<i>1080p</i>")
-        .replace("{audio}",   "<i>SUB</i>")
-    )
-    return (
-        f"<b>Filename Format</b>{extra}\n\n"
-        f"<b>Current:</b>\n<code>{fmt}</code>\n\n"
-        f"<b>Preview:</b>\n<code>{preview}</code>\n\n"
-        f"{PLACEHOLDER_HELP}\n\n"
-        "<i>Send a new format string, or use the buttons below.</i>"
-    )
-
-
-def build_format_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Set Format", callback_data="format_set")],
-        [InlineKeyboardButton("Reset",      callback_data="format_reset")],
-        [InlineKeyboardButton("Back",       callback_data="back_to_menu")],
-    ])
 
 
 def get_thumbnail_path(settings, config=None):
@@ -1182,26 +1133,6 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 await update_main_menu(client, message, user_id, config)
             return
 
-        elif data == "set_format":
-            await update_main_menu(client, message, user_id, config)
-            await callback_query.answer()
-            return
-
-        elif data == "format_set":
-            await update_main_menu(client, message, user_id, config)
-            await callback_query.answer()
-            return
-
-        elif data == "format_reset":
-            us = user_settings(user_id)
-            us.set_format(DEFAULT_FORMAT)
-            await callback_query.answer("Format reset to default ✓")
-            await message.edit_text(
-                build_format_text(DEFAULT_FORMAT, "Reset to default ✓"),
-                reply_markup=build_format_keyboard(),
-                parse_mode=ParseMode.HTML
-            )
-            return
 
         elif data == "reset_settings":
             user_settings(user_id).reset()
@@ -1350,42 +1281,6 @@ def setup_settings_handlers(app: Client, user_settings, config):
             except Exception:
                 pass
             await _send_main_menu(client, message, us, user_id, config)
-
-        elif state == "waiting_format":
-            import re as _re
-            fmt     = message.text.strip()
-            missing = [p for p in ("{quality}", "{title}", "{episode}") if p not in fmt]
-            if missing:
-                await message.reply_text(
-                    f"❌ Missing required placeholder(s): "
-                    f"{', '.join(f'<code>{m}</code>' for m in missing)}\n\n"
-                    f"{PLACEHOLDER_HELP}",
-                    parse_mode=ParseMode.HTML
-                )
-                return
-            dummy = _re.sub(r"\{[^}]+\}", "X", fmt)
-            _, ext = os.path.splitext(dummy)
-            ALLOWED_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi",
-                            ".mpeg", ".mpg", ".wmv", ".flv", ".3gp"}
-            if ext.lower() not in ALLOWED_EXTS:
-                await message.reply_text(
-                    "❌ Format must end with a valid video extension "
-                    "(e.g. <code>.mkv</code>, <code>.mp4</code>).",
-                    parse_mode=ParseMode.HTML
-                )
-                return
-            us.set_format(fmt)
-            del us.temp_state[user_id]
-            try:
-                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-            except Exception:
-                pass
-            await client.send_message(
-                user_id,
-                build_format_text(fmt, "Format updated ✓"),
-                reply_markup=build_format_keyboard(),
-                parse_mode=ParseMode.HTML
-            )
 
         elif state == "waiting_wm_text":
             text_val = message.text.strip()
@@ -1626,21 +1521,16 @@ def setup_settings_handlers(app: Client, user_settings, config):
         prompt_message_id = state_data.get("prompt_message_id")
 
         try:
-            # Download to a temp path (NOT inside thumbnails dir) so
-            # set_thumbnail can copy it to a UUID-named persistent file
-            # and then clean up this temp correctly.
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                tmp_path = tmp.name
+            thumb_dir = config.paths.thumbnails
+            os.makedirs(thumb_dir, exist_ok=True)
+            dest_path = os.path.join(thumb_dir, f"{user_id}.jpg")
 
-            downloaded_path = await client.download_media(message, file_name=tmp_path)
+            downloaded_path = await client.download_media(message, file_name=dest_path)
 
             if not downloaded_path or not os.path.exists(downloaded_path):
                 await message.reply_text("<b>Failed to save thumbnail.</b> Please try again.", parse_mode=ParseMode.HTML)
                 return
 
-            # set_thumbnail copies to UUID path, removes old thumb, and
-            # removes the source temp file automatically.
             us.set_thumbnail(os.path.abspath(downloaded_path))
             del us.temp_state[user_id]
 
@@ -1728,7 +1618,6 @@ def setup_settings_handlers(app: Client, user_settings, config):
 # ── Private helper ────────────────────────────────────────────────────────────
 
 async def _send_main_menu(client, message, us, user_id, config):
-    """Send (or re-send) the main settings menu to the same chat the message came from."""
     user     = message.from_user
     name     = f"{user.first_name or ''} {user.last_name or ''}".strip()
     username = user.username or ""

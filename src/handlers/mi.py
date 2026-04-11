@@ -13,13 +13,12 @@ from src.utils.telegraphpage import MediaInfoHelper
 # ─── Singleton ────────────────────────────────────────────────────────────────
 _telegraph = MediaInfoHelper()
 
-PARTIAL_BYTES = 3 * 1024 * 1024   # 3 MB head — enough for mediainfo
+PARTIAL_BYTES = 3 * 1024 * 1024
 
 
 # ─── Handler ──────────────────────────────────────────────────────────────────
 
 async def _handle_mi_command(client, message: Message):
-    # Must be a reply to a media message
     replied = message.reply_to_message
     if not replied:
         await message.reply_text("⚠️ Reply to a media file with /mi to get its MediaInfo.")

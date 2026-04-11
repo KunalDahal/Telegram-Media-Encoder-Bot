@@ -131,7 +131,6 @@ class UserSettings:
         if "watermark" not in self.data:
             self.data["watermark"] = DEFAULT_WATERMARK.copy()
         else:
-            # Forward-fill any new keys added to DEFAULT_WATERMARK
             for key, val in DEFAULT_WATERMARK.items():
                 if key not in self.data["watermark"]:
                     self.data["watermark"][key] = val
@@ -350,28 +349,13 @@ class UserSettings:
     def set_thumbnail(self, path: str):
         if not path or not os.path.exists(path):
             return
-        ext             = os.path.splitext(path)[1] or ".jpg"
-        thumb_filename  = f"thumb_{self.user_id}_{uuid.uuid4().hex[:8]}{ext}"
-        persistent_path = os.path.abspath(os.path.join(self.thumbnails_folder, thumb_filename))
+        persistent_path = os.path.abspath(
+            os.path.join(self.thumbnails_folder, f"thumb_{self.user_id}.jpg")
+        )
         shutil.copy2(path, persistent_path)
-
-        # Remove the old tracked thumbnail from disk
-        old_thumb  = self.data.get("thumbnail_path", "")
+        src_abs    = os.path.abspath(path)
         thumbs_abs = os.path.abspath(self.thumbnails_folder)
-        if (
-            old_thumb
-            and old_thumb != persistent_path
-            and os.path.exists(old_thumb)
-            and os.path.abspath(old_thumb).startswith(thumbs_abs)
-        ):
-            try:
-                os.remove(old_thumb)
-            except Exception:
-                pass
-
-        # Clean up the source temp file if it isn't the persistent copy itself
-        src_abs = os.path.abspath(path)
-        if src_abs != persistent_path and os.path.exists(src_abs):
+        if src_abs != persistent_path and not src_abs.startswith(thumbs_abs):
             try:
                 os.remove(src_abs)
             except Exception:

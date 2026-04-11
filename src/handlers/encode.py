@@ -15,7 +15,6 @@ ALLOWED_VIDEO_EXTENSIONS = {
 }
 SUPPORTED_RESOLUTIONS = ["1080p", "720p", "480p"]
 
-
 # ── Access guard ──────────────────────────────────────────────────────────────
 
 async def _check_access(client, message: Message, config) -> bool:
@@ -38,19 +37,6 @@ async def _check_access(client, message: Message, config) -> bool:
 # ── Command parser ────────────────────────────────────────────────────────────
 
 def _parse_encode_command(text: str):
-    """
-    Parse the encode command into (batch, batch_count, template, error).
-
-    Supported formats:
-      /e <template>          → single encode
-      /e -b <template>       → batch encode (media group)
-      /e -b N <template>     → batch encode (N sequential messages)
-
-    Rules:
-      • Template must contain {quality}  — filled from user's resolution settings.
-      • Template must end with a video extension (.mkv, .mp4, …).
-      • Batch template should contain {episode} for auto-increment.
-    """
     text = re.sub(r"^/\S+\s*", "", text).strip()
 
     batch       = False
@@ -74,7 +60,6 @@ def _parse_encode_command(text: str):
     if not template:
         return False, None, None, "Please provide a filename template."
 
-    # Validate extension (replace placeholders with dummy chars first)
     dummy = re.sub(r"\{[^}]+\}", "X", template)
     ext   = os.path.splitext(dummy)[1].lower()
     if not ext or ext not in ALLOWED_VIDEO_EXTENSIONS:
@@ -83,7 +68,6 @@ def _parse_encode_command(text: str):
             f"Got: `{template}`"
         )
 
-    # {quality} is mandatory
     if "{quality}" not in template:
         return False, None, None, (
             "Template must contain `{quality}` so the resolution is filled in automatically.\n"
@@ -100,12 +84,10 @@ def get_selected_resolutions(settings: dict) -> list:
     normalized  = [r for r in resolutions if r in SUPPORTED_RESOLUTIONS]
     if not normalized:
         normalized = ["1080p"]
-    # Return in canonical order
     return [r for r in SUPPORTED_RESOLUTIONS if r in normalized][:4]
 
 
 def build_output_filename(template: str, episode: str | None, resolution: str) -> str:
-    """Replace {episode} and {quality} in the template."""
     name = template
     if episode is not None:
         name = name.replace("{episode}", episode)
@@ -114,7 +96,6 @@ def build_output_filename(template: str, episode: str | None, resolution: str) -
 
 
 def build_jobs(template: str, episode: str | None, resolutions: list, settings_obj) -> list:
-    """Build one job dict per resolution."""
     jobs = []
     for resolution in resolutions:
         effective = settings_obj.get_effective_settings(
@@ -181,7 +162,6 @@ def _is_video(msg: Message) -> bool:
 
 
 def _file_info(msg: Message):
-    """Return (file_id, original_file_name, file_size)."""
     if msg.video:
         v = msg.video
         return v.file_id, (v.file_name or f"video_{v.file_id[:8]}.mp4"), v.file_size
@@ -211,8 +191,6 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
 
     file_id, original_file_name, file_size = _file_info(replied)
     resolutions = get_selected_resolutions(settings)
-
-    # Fill {episode} from settings if the template uses it
     ep_str = None
     if "{episode}" in template:
         raw_ep = str(settings.get("default_start_episode", 1))
@@ -336,12 +314,11 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
     mode_label = f"sequential ({batch_count} msgs)" if batch_count else "media group"
 
     lines = [
-        f"✅ Queued **{len(valid_files)}** file(s). _{mode_label}_\n",
-        f"**Template:** `{template}`",
-        (f"**Episodes:** {ep_start} → {ep_end}" if has_ep_token else f"**Episode:** {ep_start}"),
-        f"**Quality:** {' → '.join(resolutions)}",
-        f"**Queue position(s):** {pos_text}",
-    ]
+    f"Added {len(valid_files)} file(s) to the queue {pos_text}. ({mode_label})\n",
+    f"Naming format: `{template}`",
+    (f"Episodes: {ep_start} to {ep_end}" if has_ep_token else f"Episode: {ep_start}"),
+    f"Video quality: {' → '.join(resolutions)}"
+]
     if skipped:
         lines.append(f"**Skipped:** {skipped} non-video file(s)")
     lines.append("\nOutput will be delivered to your DM.")

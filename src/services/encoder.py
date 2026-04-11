@@ -1,4 +1,3 @@
-# encoder.py
 import asyncio
 import os
 
@@ -32,8 +31,6 @@ class Encoder:
             duration_secs = float(media_info.get("format", {}).get("duration", 0) or 0)
         except Exception:
             pass
-
-        # Fallback: ask ffprobe directly for duration when probe_media gave 0
         if duration_secs <= 0.0:
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -52,8 +49,6 @@ class Encoder:
                         duration_secs = float(raw)
             except Exception:
                 pass
-
-        # Last resort: try reading duration from stream-level info
         if duration_secs <= 0.0 and media_info:
             for stream in media_info.get("streams", []):
                 try:
@@ -97,8 +92,6 @@ class Encoder:
         if os.path.exists(final_output_path):
             os.remove(final_output_path)
         os.rename(temp_output_path, final_output_path)
-
-        # Mark 100 % after successful rename
         if task_queue:
             task = task_queue.tasks.get(task_id)
             if task is not None:

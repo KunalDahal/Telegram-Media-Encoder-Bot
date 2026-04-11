@@ -75,7 +75,6 @@ class MediaInfoHelper:
         "Other":   ("📄",  "Other"),
     }
 
-    # Attributes to skip (internal pymediainfo bookkeeping fields)
     SKIP_FIELDS = {
         "track_type", "count", "stream_identifier", "streamorder",
         "other_format", "other_duration", "other_bit_rate",

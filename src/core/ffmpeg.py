@@ -278,14 +278,13 @@ class FFmpeg:
         cmd = [
             self.ffmpeg_path,
             "-i", input_path,
-            "-map", "0:v",  # Map all video streams
-            "-map", "0:a",  # Map all audio streams
-            "-map", "0:s?", # Map all subtitle streams (if present)
-            "-map", "0:d?", # Map all data streams (if present)
-            "-map", "0:t?", # Map all attachment streams (if present)
+            "-map", "0:v", 
+            "-map", "0:a", 
+            "-map", "0:s?",
+            "-map", "0:d?"
+            "-map", "0:t?",
         ]
 
-        # Apply audio settings to ALL audio streams
         if audio_codec == "copy":
             cmd.extend(["-c:a", "copy"])
         else:

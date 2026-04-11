@@ -612,7 +612,7 @@ for _i, _p in enumerate(PAGES):
 def _start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Developer", url="https://t.me/renzobot"),
+            InlineKeyboardButton("Developer", url="https://t.me/Suubaru_bhai"),
             InlineKeyboardButton("Guide →",  callback_data="help_open:0"),
         ],
         [

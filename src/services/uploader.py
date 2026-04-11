@@ -1,4 +1,3 @@
-# uploader.py
 import asyncio
 import math
 import os
@@ -7,14 +6,7 @@ import time
 
 MAX_NON_PREMIUM_BYTES = int(1.95 * 1024 ** 3)
 MAX_PREMIUM_BYTES = int(3.95 * 1024 ** 3)
-
-# Minimum interval between speed/ETA recalculations (seconds).
-# Pyrogram fires the progress callback on every chunk, which can be many times
-# per second.  Recomputing speed on every single call produces a very noisy
-# value and, more importantly, on the *first* call the delta-bytes is tiny
-# (one chunk) so the computed speed is nonsensically large or small.
 _SPEED_UPDATE_INTERVAL = 0.5
-
 
 class Uploader:
     def __init__(self, client, task_data: dict, task_queue=None, tmp_dir: str = None, ffmpeg=None, user_is_premium: bool = False):
@@ -34,7 +26,6 @@ class Uploader:
         self._total_uploaded_bytes = 0
         self._grand_total_bytes = 0
         self._current_part_size = 0
-        # Cached speed/ETA so that high-frequency callbacks don't thrash the value
         self._cached_speed = 0.0
         self._cached_eta = 0
 
@@ -112,7 +103,6 @@ class Uploader:
             for part_idx, (part_path, part_name) in enumerate(parts, start=1):
                 self.upload_progress["current_part"] = part_idx
                 self._current_part_size = os.path.getsize(part_path)
-                # Reset per-part speed tracking
                 self._last_time = None
                 self._last_bytes = 0
                 self._cached_speed = 0.0
@@ -167,17 +157,9 @@ class Uploader:
             overall_uploaded / self._grand_total_bytes * 100
         ) if self._grand_total_bytes else 0.0
         overall_pct = round(overall_pct, 2)
-
-        # ── First call for this part: initialise timing baseline ─────────────
-        # BUG FIX: the old code returned early after the first call without
-        # updating self.upload_progress["percentage"], so the instance-level
-        # dict stayed at 0% forever.  We now always update the instance dict
-        # and task dict on every call; speed/ETA are only recalculated after
-        # _SPEED_UPDATE_INTERVAL seconds to avoid noise.
         if self._last_time is None:
             self._last_time = now
             self._last_bytes = current
-            # Update instance dict so get_progress() is always fresh
             self.upload_progress.update({
                 "uploaded": overall_uploaded,
                 "percentage": overall_pct,
@@ -198,8 +180,6 @@ class Uploader:
             return
 
         interval = now - self._last_time
-
-        # Throttle speed recalculation to avoid division by near-zero intervals
         if interval >= _SPEED_UPDATE_INTERVAL:
             bytes_delta = current - self._last_bytes
             self._cached_speed = max(0.0, bytes_delta / interval)
@@ -210,7 +190,6 @@ class Uploader:
 
         total_elapsed = int(now - self._start_time) if self._start_time else 0
 
-        # Always update percentage and elapsed; speed/ETA use cached values
         self.upload_progress.update({
             "uploaded": overall_uploaded,
             "percentage": overall_pct,

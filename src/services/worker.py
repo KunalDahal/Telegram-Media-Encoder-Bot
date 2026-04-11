@@ -1,4 +1,3 @@
-# worker.py
 import asyncio
 import os
 import shutil
@@ -19,7 +18,6 @@ class Worker:
         self.running = False
         self._current_task_id = None
         self._current_asyncio_task: asyncio.Task | None = None
-        # task_id → asyncio.Task for background (prefetch) downloads
         self._bg_downloads: dict[str, asyncio.Task] = {}
 
         os.makedirs(self.temp_base, exist_ok=True)
@@ -74,31 +72,20 @@ class Worker:
     def _next_queued_task(self):
         for task_id in self.task_queue.queue:
             task = self.task_queue.get_task(task_id)
-            # "ready" = prefetch-complete; "queued" = normal waiting state.
             if task and task.get("status") in ("queued", "ready"):
                 return task
         return None
 
     async def _snapshot_thumbnail(self, task: dict):
-        """
-        Freeze the thumbnail for this task the moment it starts running.
-
-        Copies the current thumbnail file into tmp/{task_id}/thumbnail_{task_id}.jpg
-        and rewrites task["thumbnail_path"] (and every job's thumbnail_path) to
-        point at that frozen copy.  After this call, changing the user's global
-        thumbnail setting cannot affect this task.
-        """
         task_id = task["task_id"]
         src = task.get("thumbnail_path", "")
 
         if not src or not os.path.exists(src):
-            # Nothing to snapshot – leave thumbnail_path as-is (empty or missing).
             return
 
         task_folder = os.path.join(self.temp_base, task_id)
         frozen_path = os.path.join(task_folder, f"thumbnail_{task_id}.jpg")
 
-        # Already snapshotted (e.g. during prefetch) — nothing to do.
         if os.path.abspath(src) == os.path.abspath(frozen_path):
             return
 
@@ -110,27 +97,18 @@ class Worker:
             print(f"[Worker] Could not snapshot thumbnail for {task_id}: {e}")
             return
 
-        # Update task-level path
         task["thumbnail_path"] = frozen_path
-
-        # Update every job's thumbnail_path so _resolve_thumbnail uses the snapshot
-        for job in task.get("jobs") or []:
-            if job.get("thumbnail_path") == src:
-                job["thumbnail_path"] = frozen_path
 
     async def _run_task(self, task: dict):
         task_id = task["task_id"]
         self.task_queue.update_status(task_id, "starting", 0)
 
-        # Freeze the thumbnail immediately so later setting changes don't bleed in.
         await self._snapshot_thumbnail(task)
 
         downloaded_path = await self._download(task)
         if not downloaded_path:
             raise Exception("Download failed")
 
-        # Download done — kick off the next task's download in the background
-        # while we keep this CPU busy with encoding.
         await self._prefetch_next_download(task_id)
 
         jobs = task.get("jobs") or [self._legacy_job(task)]
@@ -178,7 +156,6 @@ class Worker:
             if existing and os.path.exists(existing):
                 self.task_queue.update_status(task_id, "ready", 0)
                 return existing
-            # Prefetch failed — fall through to normal download below
 
         # ── Case 3: normal download ───────────────────────────────────────────
         self.task_queue.update_status(task_id, "downloading", 0)
@@ -194,13 +171,9 @@ class Worker:
         return path
 
     async def _prefetch_next_download(self, current_task_id: str):
-        """
-        Start downloading the next queued task in the background so it is
-        ready (or well underway) by the time the current task finishes encoding.
-        Only one background download runs at a time.
-        """
+
         if self._bg_downloads:
-            return  # Already prefetching something
+            return 
 
         next_task = None
         for task_id in self.task_queue.queue:
@@ -217,14 +190,12 @@ class Worker:
         next_id = next_task["task_id"]
         print(f"[Worker] Starting prefetch download for task {next_id}")
 
-        # Snapshot thumbnail now so it is frozen before any user change
         await self._snapshot_thumbnail(next_task)
 
         bg = asyncio.create_task(self._bg_download(next_task))
         self._bg_downloads[next_id] = bg
 
     async def _bg_download(self, task: dict):
-        """Background coroutine that downloads a future task's file."""
         task_id = task["task_id"]
         try:
             task["user_is_premium"] = await self._get_user_premium(task["user_id"])
@@ -232,11 +203,9 @@ class Worker:
             path = await downloader.download(client=self.client, task_data=task)
             if path and os.path.exists(path):
                 task["_downloaded_path"] = path
-                # "ready" signals _next_queued_task to pick this up without re-downloading
                 self.task_queue.update_status(task_id, "ready", 0)
                 print(f"[Worker] Prefetch complete for task {task_id}")
             else:
-                # Reset so the normal flow retries it
                 self.task_queue.update_status(task_id, "queued", 0)
         except asyncio.CancelledError:
             self.task_queue.update_status(task_id, "queued", 0)
