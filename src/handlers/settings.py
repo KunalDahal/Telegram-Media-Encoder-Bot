@@ -101,7 +101,7 @@ def build_settings_text(name, username, user_id, settings, page: int = 0):
         "------------------\n"
         f"<b>Watermark:</b> {wm_summary}\n"
         "------------------\n"
-        "<b>Start Episode: <code>{ep}</code></b>\n"
+        f"<b>Start Episode: <code>{ep}</code></b>\n"
         "------------------\n"
     )
 
