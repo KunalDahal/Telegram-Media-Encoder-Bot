@@ -281,7 +281,7 @@ class FFmpeg:
             "-map", "0:v", 
             "-map", "0:a", 
             "-map", "0:s?",
-            "-map", "0:d?"
+            "-map", "0:d?",
             "-map", "0:t?",
         ]
 
