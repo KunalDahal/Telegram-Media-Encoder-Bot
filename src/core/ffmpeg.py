@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import math
 import os
 import random
 
@@ -56,6 +57,38 @@ def _wm_position_expr(position: str, pad: float) -> str:
     return exprs.get(position, exprs["bot_right"])
 
 
+def _build_random_intervals(
+    video_duration: float,
+    repeat_count: int,
+    per_duration: float,
+) -> list[tuple[float, float]]:
+    if video_duration <= 0 or repeat_count <= 0 or per_duration <= 0:
+        return []
+
+    # ── Feasibility clamp ─────────────────────────────────────────────────────
+    max_fits = max(1, int(video_duration / per_duration))
+    repeat_count = min(repeat_count, max_fits)
+    section_len = video_duration / repeat_count
+    per_duration = min(per_duration, section_len)
+
+    intervals: list[tuple[float, float]] = []
+    for i in range(repeat_count):
+        sec_start = i * section_len
+        sec_end   = sec_start + section_len
+        latest_start = sec_end - per_duration
+        if latest_start < sec_start:
+            start = sec_start
+        else:
+            mid_lo = sec_start + (section_len - per_duration) * 0.25
+            mid_hi = sec_start + (section_len - per_duration) * 0.75
+            mid_lo = max(sec_start, min(mid_lo, latest_start))
+            mid_hi = max(mid_lo,    min(mid_hi, latest_start))
+            start = random.uniform(mid_lo, mid_hi)
+
+        end = start + per_duration
+        intervals.append((round(start, 3), round(end, 3)))
+
+    return intervals
 
 
 class FFmpeg:
@@ -139,30 +172,41 @@ class FFmpeg:
         except (TypeError, ValueError):
             video_duration = 0.0
 
+        # ── Build enable= expression ──────────────────────────────────────────
+        enable_expr = ""
+
         if timing_mode == "full":
-            start_sec = 0
-            end_sec   = 0
-        elif timing_mode == "random_duration":
-            duration  = max(1, int(wm.get("duration", 30)))
-            if video_duration > 0 and duration < video_duration:
-                start_sec = random.randint(0, int(video_duration - duration))
-            else:
-                start_sec = 0
-            end_sec = start_sec + duration
-        else:
+            enable_expr = ""
+
+        elif timing_mode == "range":
             start_sec = max(0, int(wm.get("start", 0)))
             end_sec   = int(wm.get("end", 0))
             if end_sec <= start_sec:
                 end_sec = int(video_duration) if video_duration > 0 else 0
+            if not (start_sec == 0 and end_sec == 0):
+                enable_expr = f"between(t,{start_sec},{end_sec})"
 
+        elif timing_mode == "random_duration":
+            per_duration = max(1, int(wm.get("duration", 30)))
+            repeat_count = max(1, int(wm.get("repeat_count", 1)))
+
+            intervals = _build_random_intervals(video_duration, repeat_count, per_duration)
+
+            if intervals:
+                clauses = [f"between(t,{s},{e})" for s, e in intervals]
+                enable_expr = "+".join(clauses)
+            else:
+                enable_expr = ""
+
+        # ── Assemble drawtext filter ──────────────────────────────────────────
         parts = [f"{font_part}text='{text_escaped}'"]
         parts += [
             f"fontcolor={color}",
             f"fontsize={font_size_expr}",
             pos_expr,
         ]
-        if not (start_sec == 0 and end_sec == 0):
-            parts.append(f"enable='between(t,{start_sec},{end_sec})'")
+        if enable_expr:
+            parts.append(f"enable='{enable_expr}'")
 
         return "drawtext=" + ":".join(parts)
 
@@ -203,7 +247,7 @@ class FFmpeg:
         audio_codec     = settings.get("audio_codec", "aac")
         audio_bitrate   = settings.get("audio_bitrate", "128k")
 
-        if processing_mode == "metadata_only" or resolution_str == "HDRip":
+        if processing_mode == "rename":
             cmd = [
                 self.ffmpeg_path,
                 "-i", input_path,
@@ -216,62 +260,16 @@ class FFmpeg:
             cmd.extend(["-y", output_path])
             return cmd
 
-        if processing_mode == "rename":
-            wm_filter = self._build_watermark_filter(watermark, media_info) if watermark else ""
-            if wm_filter:
-                source_codec = "libx264"
-                try:
-                    for stream in media_info.get("streams", []):
-                        if stream.get("codec_type") == "video":
-                            cn = stream.get("codec_name", "")
-                            source_codec = "libx265" if ("265" in cn or "hevc" in cn) else "libx264"
-                            break
-                except Exception:
-                    source_codec = "libx264"
-
-                sub_codec = self._subtitle_codec(output_path)
-                cmd = [
-                    self.ffmpeg_path,
-                    "-i", input_path,
-                    "-map", "0:v",
-                    "-map", "0:a",
-                    "-map", "0:s?",
-                    "-map", "0:t?",
-                    "-c:a", "copy",
-                    "-c:s", sub_codec,
-                    "-c:t", "copy",
-                    "-c:v", source_codec,
-                    "-crf", "18",
-                    "-preset", "medium",
-                    "-vf", wm_filter,
-                    "-pix_fmt", "yuv420p",
-                    "-map_metadata", "0",
-                ]
-            else:
-                cmd = [
-                    self.ffmpeg_path,
-                    "-i", input_path,
-                    "-map", "0",
-                    "-c", "copy",
-                    "-map_metadata", "0",
-                ]
-            cmd.extend(self._container_flags(output_path))
-            self._append_metadata(cmd, metadata)
-            cmd.extend(["-y", output_path])
-            return cmd
-
         dimensions = self._get_resolution_dimensions(resolution_str)
         width, height = dimensions.split("x")
 
         video_codec = settings.get("codec", "libx264")
         if video_codec not in ("libx264", "libx265", "h264", "h265"):
             video_codec = "libx264"
-
-        sub_codec = self._subtitle_codec(output_path)
-
         scale_pad = (
-            f"scale={dimensions}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"
+            f"scale='min({width},iw)':'min({height},ih)'"
+            f":force_original_aspect_ratio=decrease"
+            f",scale=trunc(iw/2)*2:trunc(ih/2)*2"
         )
 
         wm_filter = self._build_watermark_filter(watermark, media_info) if watermark else ""
@@ -280,9 +278,10 @@ class FFmpeg:
         cmd = [
             self.ffmpeg_path,
             "-i", input_path,
-            "-map", "0:v",
-            "-map", "0:a",
+            "-map", "0:v", 
+            "-map", "0:a", 
             "-map", "0:s?",
+            "-map", "0:d?"
             "-map", "0:t?",
         ]
 
@@ -292,15 +291,20 @@ class FFmpeg:
             cmd.extend(["-c:a", audio_codec, "-b:a", audio_bitrate])
 
         cmd.extend([
+            "-c:s", "copy", 
+            "-c:d", "copy",
+            "-c:t", "copy",  
+        ])
+
+        cmd.extend([
             "-c:v", video_codec,
             "-preset", settings.get("preset", "medium"),
             "-crf", str(settings.get("crf", 23)),
             "-vf", vf,
             "-pix_fmt", "yuv420p",
-            "-c:s", sub_codec,
-            "-c:t", "copy",
             "-map_metadata", "0",
         ])
+        
         if video_codec in ("libx264", "h264"):
             cmd.extend(["-x264-params", "threads=3:lookahead_threads=1:sliced_threads=0"])
         elif video_codec in ("libx265", "h265"):
@@ -373,10 +377,10 @@ class FFmpeg:
                     if "=" not in line:
                         continue
                     key, _, val = line.partition("=")
-                    if key in ("out_time_ms", "out_time_us"):
+                    if key == "out_time_us":
                         try:
-                            us  = int(val)
-                            pct = min(99.9, us / 1_000_000 / duration_secs * 100)
+                            elapsed_secs = int(val) / 1_000_000
+                            pct = min(99.9, elapsed_secs / duration_secs * 100)
                             await progress_cb(pct)
                         except (ValueError, ZeroDivisionError):
                             pass

@@ -1,7 +1,7 @@
 services:
   video-encoder-bot:
     build: .
-    container_name: subarukijaiho
+    container_name: encode-bot
     restart: unless-stopped
     env_file:
       - .env

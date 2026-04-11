@@ -1,5 +1,3 @@
-# GENERATE SESSION STRING 
-
 from pyrogram import Client
 from dotenv import load_dotenv
 import os
