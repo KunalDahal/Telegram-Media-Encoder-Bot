@@ -47,7 +47,15 @@ class Config:
     def __init__(self):
         load_dotenv()
 
+        # ── Main bot (DC4) ────────────────────────────────────────────────────
         self.bot_token: str = os.getenv("BOT_TOKEN", "")
+
+        # ── Secondary bot (DC5) — optional ───────────────────────────────────
+        # If DC5_BOT_TOKEN is set, the secondary bot will be started and used
+        # to download files that live on DC 5.
+        self.dc5_bot_token: str = os.getenv("DC5_BOT_TOKEN", "")
+
+        # ── Shared Telegram API credentials ───────────────────────────────────
         self.api_id:    int = int(os.getenv("API_ID", "0"))
         self.api_hash:  str = os.getenv("API_HASH", "")
 
@@ -61,6 +69,11 @@ class Config:
         self.paths = Paths(self._SRC_DIR)
 
         self._validate()
+
+    @property
+    def has_dc5_bot(self) -> bool:
+        """True when a secondary DC5 bot token has been configured."""
+        return bool(self.dc5_bot_token)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

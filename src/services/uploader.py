@@ -121,6 +121,8 @@ class Uploader:
                         force_document=True,
                         file_name=part_name,
                         progress=self._progress_callback,
+                        read_timeout=300,
+                        write_timeout=300,
                     )
                 else:
                     result = await self.client.send_video(
@@ -130,6 +132,8 @@ class Uploader:
                         caption=caption,
                         supports_streaming=True,
                         progress=self._progress_callback,
+                        read_timeout=300,
+                        write_timeout=300,
                     )
 
                 results.append(result)
@@ -152,6 +156,7 @@ class Uploader:
     async def _progress_callback(self, current: int, total: int):
         now = time.time()
 
+        # overall = all fully-completed parts + current part's progress
         overall_uploaded = self._total_uploaded_bytes + current
         overall_pct = (
             overall_uploaded / self._grand_total_bytes * 100

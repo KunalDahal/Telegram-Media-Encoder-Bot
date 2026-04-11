@@ -1,9 +1,34 @@
+"""
+cancel.py
+─────────
+Unified /cancel handler for both the main bot (DC4) and the DC5 bot.
+
+Each bot is registered with its own `bot_dc` value so it only acts on
+tasks it owns — but every bot replies with its own message, preventing
+double-replies.
+
+Usage in __main__.py
+────────────────────
+    from src.handlers.cancel import setup_cancel_handlers, set_worker_instance, set_admin_ids
+
+    # Main bot (DC4)
+    setup_cancel_handlers(main_app, task_queue, config, bot_dc=4)
+
+    # DC5 bot
+    setup_cancel_handlers(dc5_app, task_queue, config, bot_dc=5)
+
+    set_worker_instance(worker)
+    set_admin_ids(config.admin_ids)
+"""
+
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message
 
 _worker_instance = None
-_admin_ids = []
+_admin_ids: list[int] = []
 
+
+# ── Shared state setters (called once from __main__.py) ───────────────────────
 
 def set_worker_instance(worker):
     global _worker_instance
@@ -23,10 +48,12 @@ def get_admin_ids():
     return _admin_ids
 
 
-async def _check_access(client, message: Message) -> bool:
-    user_id = message.from_user.id
+# ── DM reachability check ─────────────────────────────────────────────────────
+
+async def _check_access(client: Client, message: Message) -> bool:
+    """Ensure the user has started this bot in DM so we can reply there."""
     try:
-        await client.get_chat(user_id)
+        await client.get_chat(message.from_user.id)
     except Exception:
         bot_username = (await client.get_me()).username
         await message.reply_text(
@@ -38,15 +65,24 @@ async def _check_access(client, message: Message) -> bool:
     return True
 
 
-def setup_cancel_handlers(app: Client, task_queue, config):
+# ── Handler registration ──────────────────────────────────────────────────────
 
-    allowed_group_filter = filters.chat(config.allowed_group_ids)
+def setup_cancel_handlers(app: Client, task_queue, config, bot_dc: int = 4):
+    """
+    Register /cancel and /c on `app`.
 
-    @app.on_message(filters.command(["cancel", "c"]) & allowed_group_filter)
+    `bot_dc` — the DC this bot instance owns (4 = main, 5 = secondary).
+    Each bot silently ignores tasks that belong to the other bot.
+    """
+
+    allowed_filter = filters.chat(config.allowed_group_ids)
+
+    @app.on_message(filters.command(["cancel", "c"]) & allowed_filter)
     async def cancel_command(client: Client, message: Message):
         if not await _check_access(client, message):
             return
 
+        # ── Argument check ────────────────────────────────────────────────────
         if len(message.command) < 2:
             await message.reply_text(
                 "Usage: <code>/cancel &lt;task_id&gt;</code>\n"
@@ -57,7 +93,7 @@ def setup_cancel_handlers(app: Client, task_queue, config):
 
         task_id_part = message.command[1].strip()
 
-        # ── Match task by prefix ──────────────────────────────────────────────
+        # ── Find task by prefix ───────────────────────────────────────────────
         matching_task_id = None
         for tid in list(task_queue.tasks.keys()):
             if tid.startswith(task_id_part):
@@ -79,8 +115,14 @@ def setup_cancel_handlers(app: Client, task_queue, config):
             )
             return
 
-        # ── Ownership check ───────────────────────────────────────────────────
-        user_id = message.from_user.id
+        # ── DC ownership: each bot only handles its own tasks ─────────────────
+        task_dc = task.get("queued_by_bot_dc", 4)   # default 4 for legacy tasks
+        if task_dc != bot_dc:
+            # Silently ignore — the correct bot will handle it
+            return
+
+        # ── Permission check ──────────────────────────────────────────────────
+        user_id  = message.from_user.id
         is_admin = user_id in _admin_ids
         if not is_admin and task.get("user_id") != user_id:
             await message.reply_text(
@@ -89,16 +131,8 @@ def setup_cancel_handlers(app: Client, task_queue, config):
             )
             return
 
-        worker = get_worker_instance()
-        if not worker:
-            await message.reply_text(
-                "Worker is not available.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-            return
-
-        task_status = task.get("status", "")
-        if task_status == "queued":
+        # ── Queued (not yet running) — remove directly ────────────────────────
+        if task.get("status") == "queued":
             task_queue.remove_task(matching_task_id)
             await message.reply_text(
                 f"✅ Task <code>{task_id_part}</code> cancelled (was queued, not yet started).",
@@ -106,7 +140,15 @@ def setup_cancel_handlers(app: Client, task_queue, config):
             )
             return
 
-        # ── Active task — delegate to worker ─────────────────────────────────
+        # ── Active task — delegate to shared worker ───────────────────────────
+        worker = _worker_instance
+        if not worker:
+            await message.reply_text(
+                "Worker is not available.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+            return
+
         try:
             await worker.cancel_task(matching_task_id)
             await message.reply_text(

@@ -7,6 +7,8 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 import logging
 
+from src.core.dc_checker import get_file_dc
+
 logger = logging.getLogger(__name__)
 
 ALLOWED_VIDEO_EXTENSIONS = {
@@ -178,9 +180,24 @@ def _source_thumbnail_file_id(msg: Message) -> str:
     return getattr(thumbs[-1], "file_id", "") or ""
 
 
+# ── DC ownership check ────────────────────────────────────────────────────────
+
+def _this_bot_owns_file(file_id: str, bot_dc: int) -> bool:
+    """
+    Return True if this bot should handle the file.
+    DC5 bot  → only accepts DC5 files.
+    Main bot → accepts everything that is NOT DC5 (including unknown DC).
+    """
+    dc = get_file_dc(file_id)
+    if bot_dc == 5:
+        return dc == 5
+    else:
+        return dc != 5  # includes None / unknown DC
+
+
 # ── Single encode ─────────────────────────────────────────────────────────────
 
-async def _process_single_encode(client, message, task_queue, settings_obj, settings, template):
+async def _process_single_encode(client, message, task_queue, settings_obj, settings, template, bot_dc: int):
     replied = message.reply_to_message
     if not _is_video(replied):
         await message.reply_text(
@@ -190,6 +207,11 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
         return
 
     file_id, original_file_name, file_size = _file_info(replied)
+
+    # ── DC check: only queue if this bot owns the file's DC ──────────────────
+    if not _this_bot_owns_file(file_id, bot_dc):
+        return
+
     resolutions = get_selected_resolutions(settings)
     ep_str = None
     if "{episode}" in template:
@@ -205,6 +227,8 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
         "username":           message.from_user.username,
         "chat_id":            message.chat.id,
         "message_id":         message.id,
+        "source_message_id":  replied.id,
+        "queued_by_bot_dc":   bot_dc,
         "file_id":            file_id,
         "original_file_name": original_file_name,
         "output_filename":    first_job["output_filename"],
@@ -237,7 +261,7 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
 
 # ── Batch encode ──────────────────────────────────────────────────────────────
 
-async def _process_batch_encode(client, message, task_queue, settings_obj, settings, template, batch_count):
+async def _process_batch_encode(client, message, task_queue, settings_obj, settings, template, batch_count, bot_dc: int):
     replied     = message.reply_to_message
     has_ep_token = "{episode}" in template
 
@@ -275,6 +299,11 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
         episodes.append(ep_num)
 
         file_id, original_file_name, file_size = _file_info(media_msg)
+
+        # ── DC check: only queue if this bot owns the file's DC ────────────
+        if not _this_bot_owns_file(file_id, bot_dc):
+            continue
+
         jobs      = build_jobs(template, ep_str, resolutions, settings_obj)
         first_job = jobs[0]
 
@@ -284,6 +313,8 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
             "username":           message.from_user.username,
             "chat_id":            message.chat.id,
             "message_id":         message.id,
+            "source_message_id":  media_msg.id,
+            "queued_by_bot_dc":   bot_dc,
             "file_id":            file_id,
             "original_file_name": original_file_name,
             "output_filename":    first_job["output_filename"],
@@ -328,7 +359,7 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-async def process_encode_command(client: Client, message: Message, task_queue, user_settings):
+async def process_encode_command(client: Client, message: Message, task_queue, user_settings, bot_dc: int = 4):
     if not message.reply_to_message:
         await message.reply_text(
             "Reply to a video file and use:\n\n"
@@ -358,21 +389,21 @@ async def process_encode_command(client: Client, message: Message, task_queue, u
 
     if batch:
         await _process_batch_encode(
-            client, message, task_queue, settings_obj, settings, template, batch_count
+            client, message, task_queue, settings_obj, settings, template, batch_count, bot_dc
         )
     else:
         await _process_single_encode(
-            client, message, task_queue, settings_obj, settings, template
+            client, message, task_queue, settings_obj, settings, template, bot_dc
         )
 
 
 # ── Handler registration ──────────────────────────────────────────────────────
 
-def setup_encode_handlers(app: Client, task_queue, user_settings, config):
+def setup_encode_handlers(app: Client, task_queue, user_settings, config, bot_dc: int = 4):
     allowed_group_filter = filters.chat(config.allowed_group_ids)
 
     @app.on_message(filters.command(["e", "encode"]) & allowed_group_filter)
     async def encode_command(client: Client, message: Message):
         if not await _check_access(client, message, config):
             return
-        await process_encode_command(client, message, task_queue, user_settings)
+        await process_encode_command(client, message, task_queue, user_settings, bot_dc)

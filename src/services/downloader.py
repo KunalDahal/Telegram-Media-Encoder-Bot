@@ -147,4 +147,3 @@ class Downloader:
         }
         self._start_time = None
         self._last_cb_time = None
-download_progress.copy()

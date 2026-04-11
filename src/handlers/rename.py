@@ -7,6 +7,8 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 import logging
 
+from src.core.dc_checker import get_file_dc
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -182,10 +184,12 @@ def _build_task(
     original_file_name: str,
     file_size: int,
     source_thumbnail_file_id: str,
+    source_message_id: int,
     output_filename: str,
     settings: dict,
     watermark: dict,
     created_at: str,
+    bot_dc: int = 4,
     batch: bool = False,
 ) -> dict:
     job = {
@@ -203,6 +207,8 @@ def _build_task(
         "username":                  message.from_user.username,
         "chat_id":                   message.chat.id,
         "message_id":                message.id,
+        "source_message_id":         source_message_id,
+        "queued_by_bot_dc":          bot_dc,
         "file_id":                   file_id,
         "original_file_name":        original_file_name,
         "requested_output_filename": output_filename,
@@ -226,6 +232,21 @@ def _build_task(
     }
 
 
+# ── DC ownership check ────────────────────────────────────────────────────────
+
+def _this_bot_owns_file(file_id: str, bot_dc: int) -> bool:
+    """
+    Return True if this bot should handle the file.
+    DC5 bot  → only accepts DC5 files.
+    Main bot → accepts everything that is NOT DC5 (including unknown DC).
+    """
+    dc = get_file_dc(file_id)
+    if bot_dc == 5:
+        return dc == 5
+    else:
+        return dc != 5  # includes None / unknown DC
+
+
 # ── Single rename ─────────────────────────────────────────────────────────────
 
 async def _process_single_rename(
@@ -234,6 +255,7 @@ async def _process_single_rename(
     filename: str,
     task_queue,
     user_settings,
+    bot_dc: int = 4,
 ):
     if not message.reply_to_message:
         await message.reply_text(
@@ -263,6 +285,11 @@ async def _process_single_rename(
     watermark    = settings_obj.get_watermark()
 
     file_id, original_file_name, file_size = _file_info(replied)
+
+    # ── DC check: only queue if this bot owns the file's DC ──────────────────
+    if not _this_bot_owns_file(file_id, bot_dc):
+        return
+
     created_at = datetime.utcnow().isoformat()
 
     task_data = _build_task(
@@ -271,10 +298,12 @@ async def _process_single_rename(
         original_file_name=original_file_name,
         file_size=file_size,
         source_thumbnail_file_id=_source_thumbnail_file_id(replied),
+        source_message_id=replied.id,
         output_filename=filename,
         settings=settings,
         watermark=watermark,
         created_at=created_at,
+        bot_dc=bot_dc,
         batch=False,
     )
 
@@ -300,6 +329,7 @@ async def _process_batch_rename(
     batch_count,     
     task_queue,
     user_settings,
+    bot_dc: int = 4,
 ):
     if not message.reply_to_message:
         await message.reply_text(
@@ -391,16 +421,22 @@ async def _process_batch_rename(
         output_filename = _resolve_template(template, season_str, ep_str)
         file_id, original_file_name, file_size = _file_info(mg_msg)
 
+        # ── DC check: only queue if this bot owns the file's DC ────────────
+        if not _this_bot_owns_file(file_id, bot_dc):
+            continue
+
         task_data = _build_task(
             message=message,
             file_id=file_id,
             original_file_name=original_file_name,
             file_size=file_size,
             source_thumbnail_file_id=_source_thumbnail_file_id(mg_msg),
+            source_message_id=mg_msg.id,
             output_filename=output_filename,
             settings=settings,
             watermark=watermark,
             created_at=created_at,
+            bot_dc=bot_dc,
             batch=True,
         )
 
@@ -438,6 +474,7 @@ async def process_rename_command(
     message: Message,
     task_queue,
     user_settings,
+    bot_dc: int = 4,
 ):
     is_batch, batch_count, filename, parse_error = _parse_rename_command(message.text)
 
@@ -453,19 +490,19 @@ async def process_rename_command(
 
     if is_batch:
         await _process_batch_rename(
-            client, message, filename, batch_count, task_queue, user_settings
+            client, message, filename, batch_count, task_queue, user_settings, bot_dc
         )
     else:
-        await _process_single_rename(client, message, filename, task_queue, user_settings)
+        await _process_single_rename(client, message, filename, task_queue, user_settings, bot_dc)
 
 
 # ── Handler registration ──────────────────────────────────────────────────────
 
-def setup_rename_handler(app: Client, task_queue, user_settings, config):
+def setup_rename_handler(app: Client, task_queue, user_settings, config, bot_dc: int = 4):
     allowed_group_filter = filters.chat(config.allowed_group_ids)
 
     @app.on_message(filters.command(["r", "rename"]) & allowed_group_filter)
     async def rename_command(client: Client, message: Message):
         if not await _check_access(client, message, config):
             return
-        await process_rename_command(client, message, task_queue, user_settings)
+        await process_rename_command(client, message, task_queue, user_settings, bot_dc)
