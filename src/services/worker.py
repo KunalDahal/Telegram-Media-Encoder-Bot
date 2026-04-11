@@ -267,7 +267,7 @@ class Worker:
     async def _resolve_thumbnail(self, task: dict, job: dict) -> str | None:
         auto_detect      = bool(task.get("auto_detect_thumb", False))
         source_thumb_id  = task.get("source_thumbnail_file_id", "")
-        user_thumb = job.get("thumbnail_path") or task.get("thumbnail_path") or ""
+        user_thumb = task.get("thumbnail_path") or job.get("thumbnail_path") or ""
 
         task_folder = os.path.join(self.temp_base, task["task_id"])
 
