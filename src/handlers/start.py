@@ -668,19 +668,19 @@ async def _show_start(message: Message, config: Config, edit: bool = False):
         return
 
     try:
-        if os.path.exists(config.paths.start_image):
+        if config.paths.start_image.startswith(("http://", "https://")):
             await message.reply_photo(
                 photo=config.paths.start_image,
                 caption=text,
                 reply_markup=kb,
                 parse_mode=enums.ParseMode.HTML,
             )
-        else:
-            await message.reply_text(
-                text=text,
+        elif os.path.exists(config.paths.start_image):
+            await message.reply_photo(
+                photo=config.paths.start_image,
+                caption=text,
                 reply_markup=kb,
                 parse_mode=enums.ParseMode.HTML,
-                disable_web_page_preview=True,
             )
     except Exception as e:
         print(f"[Start] send failed: {e}")

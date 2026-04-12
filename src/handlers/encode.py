@@ -4,8 +4,11 @@ import re
 from datetime import datetime
 
 from pyrogram import Client, filters
+from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import Message
 import logging
+
+from src.utils.dc_checker import is_dc_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +17,22 @@ ALLOWED_VIDEO_EXTENSIONS = {
     ".mpeg", ".mpg", ".wmv", ".flv", ".3gp",
 }
 SUPPORTED_RESOLUTIONS = ["1080p", "720p", "480p"]
+
+
+async def _safe_edit(msg, text: str):
+    try:
+        await msg.edit_text(text)
+    except MessageNotModified:
+        pass
+    except FloodWait as e:
+        import asyncio
+        await asyncio.sleep(e.value)
+        try:
+            await msg.edit_text(text)
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 # ── Access guard ──────────────────────────────────────────────────────────────
 
@@ -36,7 +55,8 @@ async def _check_access(client, message: Message, config) -> bool:
 
 # ── Command parser ────────────────────────────────────────────────────────────
 
-def _parse_encode_command(text: str):
+def _parse_encode_command(message) -> tuple:
+    text = message.text or ""
     text = re.sub(r"^/\S+\s*", "", text).strip()
 
     batch       = False
@@ -59,6 +79,13 @@ def _parse_encode_command(text: str):
 
     if not template:
         return False, None, None, "Please provide a filename template."
+
+    if (template.startswith('"') and template.endswith('"')) or \
+       (template.startswith("'") and template.endswith("'")):
+        template = template[1:-1]
+
+    if not template:
+        return False, None, None, "Filename template cannot be empty."
 
     dummy = re.sub(r"\{[^}]+\}", "X", template)
     ext   = os.path.splitext(dummy)[1].lower()
@@ -190,6 +217,10 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
         return
 
     file_id, original_file_name, file_size = _file_info(replied)
+
+    if not is_dc_allowed(file_id):
+        return
+
     resolutions = get_selected_resolutions(settings)
     ep_str = None
     if "{episode}" in template:
@@ -254,11 +285,11 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
         status_msg = await message.reply_text("⏳ Fetching media group…")
         raw_msgs   = await fetch_media_group(client, message.chat.id, replied)
 
-    valid_files = [m for m in raw_msgs if _is_video(m)]
+    valid_files = [m for m in raw_msgs if _is_video(m) and is_dc_allowed(_file_info(m)[0])]
     skipped     = len(raw_msgs) - len(valid_files)
 
     if not valid_files:
-        await status_msg.edit_text("No supported video files found.")
+        await _safe_edit(status_msg, "No supported video files found.")
         return
 
     resolutions = get_selected_resolutions(settings)
@@ -323,7 +354,7 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
         lines.append(f"**Skipped:** {skipped} non-video file(s)")
     lines.append("\nOutput will be delivered to your DM.")
 
-    await status_msg.edit_text("\n".join(lines))
+    await _safe_edit(status_msg, "\n".join(lines))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -343,11 +374,9 @@ async def process_encode_command(client: Client, message: Message, task_queue, u
         )
         return
 
-    if len(message.command) < 2:
-        await message.reply_text("Missing filename template. Reply to a video and try again.")
-        return
-
-    batch, batch_count, template, error = _parse_encode_command(message.text)
+    batch, batch_count, template, error = _parse_encode_command(message)
+    if not template and not error:
+        error = "Missing filename template. Reply to a video and try again."
     if error:
         await message.reply_text(f"❌ {error}")
         return

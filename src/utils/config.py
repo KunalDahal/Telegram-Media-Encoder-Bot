@@ -32,7 +32,7 @@ class Paths:
         self.ffmpeg     = _find_binary("ffmpeg",  bin_dir)
         self.ffprobe    = _find_binary("ffprobe", bin_dir)
 
-        self.start_image   = os.path.join(base_dir, "templates", "start.png")
+        self.start_image   = "https://i.ibb.co/N6Fc2mbZ/start.png"
         self.help_banner   = os.path.join(base_dir, "templates", "help.jpg")
         self.default_thumb = os.path.join(base_dir, "bin", "default.jpg")
 

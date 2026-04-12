@@ -101,7 +101,7 @@ def build_settings_text(name, username, user_id, settings, page: int = 0):
         "------------------\n"
         f"<b>Watermark:</b> {wm_summary}\n"
         "------------------\n"
-        "<b>Start Episode: <code>{ep}</code></b>\n"
+        f"<b>Start Episode: <code>{ep}</code></b>\n"
         "------------------\n"
     )
 
@@ -544,7 +544,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
                         parse_mode=ParseMode.HTML
                     )
                     user_settings(user_id).temp_state[user_id] = {
-                        "state": f"waiting_profile_{resolution}_crf",
+                        "chat_id": message.chat.id,
+                "settings_message_id": message.id,
+                "state": f"waiting_profile_{resolution}_crf",
                         "prompt_message_id": sent_message.id,
                         "back_to": f"profile_{resolution}",
                     }
@@ -706,6 +708,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_meta_title",
                 "prompt_message_id": sent_message.id,
                 "back_to": "metadata",
@@ -718,6 +722,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_meta_author",
                 "prompt_message_id": sent_message.id,
                 "back_to": "metadata",
@@ -730,6 +736,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_meta_encoder",
                 "prompt_message_id": sent_message.id,
                 "back_to": "metadata",
@@ -753,6 +761,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_thumbnail",
                 "prompt_message_id": sent_message.id,
                 "back_to": "thumbnail",
@@ -810,6 +820,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_wm_text",
                 "prompt_message_id": sent_message.id,
                 "back_to": "watermark",
@@ -848,6 +860,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_wm_font",
                 "prompt_message_id": sent_message.id,
                 "back_to": "watermark",
@@ -890,6 +904,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_wm_range_start",
                 "prompt_message_id": sent_message.id,
                 "back_to": "watermark",
@@ -927,6 +943,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_wm_random_count",
                 "prompt_message_id": sent_message.id,
                 "back_to": "wm_random",
@@ -948,6 +966,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_wm_duration",
                 "prompt_message_id": sent_message.id,
                 "back_to": "wm_random",
@@ -977,6 +997,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_wm_font_size",
                 "prompt_message_id": sent_message.id,
                 "back_to": "watermark",
@@ -994,6 +1016,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             user_settings(user_id).temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_wm_padding",
                 "prompt_message_id": sent_message.id,
                 "back_to": "watermark",
@@ -1050,6 +1074,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 parse_mode=ParseMode.HTML
             )
             us.temp_state[user_id] = {
+                "chat_id": message.chat.id,
+                "settings_message_id": message.id,
                 "state": "waiting_start_episode",
                 "prompt_message_id": sent_msg.id,
                 "back_to": "start_episode",
@@ -1225,6 +1251,41 @@ def setup_settings_handlers(app: Client, user_settings, config):
         state_data        = us.temp_state[user_id]
         state             = state_data["state"] if isinstance(state_data, dict) else state_data
         prompt_message_id = state_data.get("prompt_message_id") if isinstance(state_data, dict) else None
+        # Use the chat where the settings menu lives (group or DM)
+        chat_id              = state_data.get("chat_id", user_id) if isinstance(state_data, dict) else user_id
+        settings_message_id  = state_data.get("settings_message_id") if isinstance(state_data, dict) else None
+
+        async def _cleanup():
+            """Delete the prompt message and the user's reply from the chat."""
+            ids = [i for i in [prompt_message_id, message.id] if i]
+            if ids:
+                try:
+                    await client.delete_messages(chat_id=chat_id, message_ids=ids)
+                except Exception:
+                    pass
+
+        async def _edit_settings(text, keyboard):
+            """Edit the original settings message back to a new state."""
+            if settings_message_id:
+                try:
+                    await client.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=settings_message_id,
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return
+                except Exception:
+                    pass
+            # Fallback: send a new message
+            sent = await client.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            _settings_owner[(chat_id, sent.id)] = user_id
 
         if state.startswith("waiting_profile_"):
             parts = state.split("_")
@@ -1235,16 +1296,11 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     if 0 <= crf <= 58:
                         us.update_profile(resolution, "crf", crf)
                         del us.temp_state[user_id]
-                        try:
-                            await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                        except Exception:
-                            pass
+                        await _cleanup()
                         profile = us.get_profile(resolution)
-                        await client.send_message(
-                            user_id,
+                        await _edit_settings(
                             build_profile_text(resolution, profile, f"CRF updated to {crf} ✓"),
-                            reply_markup=build_profile_edit_keyboard(resolution, profile),
-                            parse_mode=ParseMode.HTML
+                            build_profile_edit_keyboard(resolution, profile),
                         )
                     else:
                         await message.reply_text(
@@ -1258,45 +1314,46 @@ def setup_settings_handlers(app: Client, user_settings, config):
         elif state == "waiting_meta_title":
             us.update_metadata(title=message.text)
             del us.temp_state[user_id]
-            try:
-                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-            except Exception:
-                pass
-            await _send_main_menu(client, message, us, user_id, config)
+            await _cleanup()
+            user_obj = message.from_user
+            name     = f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip()
+            username = user_obj.username or ""
+            settings = us.get()
+            text_out, total_pages = build_settings_text(name, username, user_id, settings, page=1)
+            await _edit_settings(text_out, build_main_keyboard(page=1, total_pages=total_pages))
 
         elif state == "waiting_meta_author":
             us.update_metadata(author=message.text)
             del us.temp_state[user_id]
-            try:
-                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-            except Exception:
-                pass
-            await _send_main_menu(client, message, us, user_id, config)
+            await _cleanup()
+            user_obj = message.from_user
+            name     = f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip()
+            username = user_obj.username or ""
+            settings = us.get()
+            text_out, total_pages = build_settings_text(name, username, user_id, settings, page=1)
+            await _edit_settings(text_out, build_main_keyboard(page=1, total_pages=total_pages))
 
         elif state == "waiting_meta_encoder":
             us.update_metadata(encoder=message.text)
             del us.temp_state[user_id]
-            try:
-                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-            except Exception:
-                pass
-            await _send_main_menu(client, message, us, user_id, config)
+            await _cleanup()
+            user_obj = message.from_user
+            name     = f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip()
+            username = user_obj.username or ""
+            settings = us.get()
+            text_out, total_pages = build_settings_text(name, username, user_id, settings, page=1)
+            await _edit_settings(text_out, build_main_keyboard(page=1, total_pages=total_pages))
 
         elif state == "waiting_wm_text":
             text_val = message.text.strip()
             if text_val:
                 us.update_watermark(text=text_val)
                 del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
+                await _cleanup()
                 wm = us.get_watermark()
-                await client.send_message(
-                    user_id,
+                await _edit_settings(
                     build_watermark_text(wm, "Text updated ✓"),
-                    reply_markup=build_watermark_keyboard(wm),
-                    parse_mode=ParseMode.HTML
+                    build_watermark_keyboard(wm),
                 )
             else:
                 await message.reply_text("Text cannot be empty.", parse_mode=ParseMode.HTML)
@@ -1307,14 +1364,10 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 if start < 0:
                     raise ValueError
                 us.update_watermark(start=start)
-                del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
+                await _cleanup()
                 start_mmss = _secs_to_mmss(start)
                 sent = await client.send_message(
-                    user_id,
+                    chat_id,
                     f"<b>Set End Time</b>\n\n"
                     f"Start is set to <code>{start_mmss}</code>.\n"
                     "Now send the <b>end time</b> in <code>MM:SS</code> format.\n"
@@ -1324,6 +1377,8 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     parse_mode=ParseMode.HTML
                 )
                 us.temp_state[user_id] = {
+                    "chat_id": chat_id,
+                    "settings_message_id": settings_message_id,
                     "state": "waiting_wm_range_end",
                     "prompt_message_id": sent.id,
                     "back_to": "watermark",
@@ -1350,18 +1405,13 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     return
                 us.update_watermark(end=end)
                 del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
+                await _cleanup()
                 wm = us.get_watermark()
                 start_mmss = _secs_to_mmss(wm["start"])
                 end_mmss   = _secs_to_mmss(end)
-                await client.send_message(
-                    user_id,
+                await _edit_settings(
                     build_watermark_text(wm, f"Timing set: {start_mmss} → {end_mmss} ✓"),
-                    reply_markup=build_watermark_keyboard(wm),
-                    parse_mode=ParseMode.HTML
+                    build_watermark_keyboard(wm),
                 )
             except ValueError:
                 await message.reply_text(
@@ -1377,13 +1427,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     raise ValueError
                 us.update_watermark(duration=duration)
                 del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
+                await _cleanup()
                 wm = us.get_watermark()
-                await client.send_message(
-                    user_id,
+                await _edit_settings(
                     "<b>Random Duration</b>\n\n"
                     "The watermark will appear at random non-overlapping points in the video.\n\n"
                     f"<b>Appearances:</b> <code>{wm.get('repeat_count', 1)}×</code>  "
@@ -1393,8 +1439,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     "<i>The video is divided into equal sections; one appearance is placed "
                     "randomly inside each section so they never overlap.</i>\n\n"
                     f"<i>Duration per appearance set to {duration}s ✓</i>",
-                    reply_markup=build_wm_random_keyboard(wm),
-                    parse_mode=ParseMode.HTML
+                    build_wm_random_keyboard(wm),
                 )
             except ValueError:
                 await message.reply_text(
@@ -1409,13 +1454,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     raise ValueError
                 us.update_watermark(repeat_count=count)
                 del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
+                await _cleanup()
                 wm = us.get_watermark()
-                await client.send_message(
-                    user_id,
+                await _edit_settings(
                     "<b>Random Duration</b>\n\n"
                     "The watermark will appear at random non-overlapping points in the video.\n\n"
                     f"<b>Appearances:</b> <code>{wm.get('repeat_count', 1)}×</code>  "
@@ -1425,8 +1466,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     "<i>The video is divided into equal sections; one appearance is placed "
                     "randomly inside each section so they never overlap.</i>\n\n"
                     f"<i>Appearances set to {count}× ✓</i>",
-                    reply_markup=build_wm_random_keyboard(wm),
-                    parse_mode=ParseMode.HTML
+                    build_wm_random_keyboard(wm),
                 )
             except ValueError:
                 await message.reply_text(
@@ -1441,16 +1481,11 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     raise ValueError
                 us.update_watermark(font_size=size)
                 del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
+                await _cleanup()
                 wm = us.get_watermark()
-                await client.send_message(
-                    user_id,
+                await _edit_settings(
                     build_watermark_text(wm, f"Font size set to {size}px ✓"),
-                    reply_markup=build_watermark_keyboard(wm),
-                    parse_mode=ParseMode.HTML
+                    build_watermark_keyboard(wm),
                 )
             except ValueError:
                 await message.reply_text(
@@ -1465,16 +1500,11 @@ def setup_settings_handlers(app: Client, user_settings, config):
                     raise ValueError
                 us.update_watermark(padding=padding)
                 del us.temp_state[user_id]
-                try:
-                    await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-                except Exception:
-                    pass
+                await _cleanup()
                 wm = us.get_watermark()
-                await client.send_message(
-                    user_id,
+                await _edit_settings(
                     build_watermark_text(wm, f"Padding set to {padding}% ✓"),
-                    reply_markup=build_watermark_keyboard(wm),
-                    parse_mode=ParseMode.HTML
+                    build_watermark_keyboard(wm),
                 )
             except ValueError:
                 await message.reply_text(
@@ -1493,19 +1523,14 @@ def setup_settings_handlers(app: Client, user_settings, config):
                 return
             us.update("default_start_episode", raw)
             del us.temp_state[user_id]
-            try:
-                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-            except Exception:
-                pass
+            await _cleanup()
             settings = us.get()
-            await client.send_message(
-                user_id,
-                build_start_episode_text(settings, f"Start episode set to {raw} updated"),
-                reply_markup=build_start_episode_keyboard(),
-                parse_mode=ParseMode.HTML
+            await _edit_settings(
+                build_start_episode_text(settings, f"Start episode set to {raw} ✓"),
+                build_start_episode_keyboard(),
             )
 
-    # ── Thumbnail photo handler (DM only) ─────────────────────────────────────
+    # ── Thumbnail photo handler (DM + allowed groups) ────────────────────────
 
     @app.on_message(filters.photo & (filters.private | filters.chat(config.allowed_group_ids)))
     async def handle_thumbnail(client: Client, message: Message):
@@ -1518,7 +1543,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
         if not (isinstance(state_data, dict) and state_data.get("state") == "waiting_thumbnail"):
             return
 
-        prompt_message_id = state_data.get("prompt_message_id")
+        prompt_message_id   = state_data.get("prompt_message_id")
+        chat_id             = state_data.get("chat_id", user_id)
+        settings_message_id = state_data.get("settings_message_id")
 
         try:
             thumb_dir = config.paths.thumbnails
@@ -1534,22 +1561,35 @@ def setup_settings_handlers(app: Client, user_settings, config):
             us.set_thumbnail(os.path.abspath(downloaded_path))
             del us.temp_state[user_id]
 
-            try:
-                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-            except Exception:
-                pass
+            ids = [i for i in [prompt_message_id, message.id] if i]
+            if ids:
+                try:
+                    await client.delete_messages(chat_id=chat_id, message_ids=ids)
+                except Exception:
+                    pass
 
-            await client.send_message(
-                chat_id=user_id,
-                text=build_thumbnail_text(us.get(), "Thumbnail saved ✓"),
-                reply_markup=build_thumbnail_keyboard(us.get()),
-                parse_mode=ParseMode.HTML
+            result_text     = build_thumbnail_text(us.get(), "Thumbnail saved ✓")
+            result_keyboard = build_thumbnail_keyboard(us.get())
+            if settings_message_id:
+                try:
+                    await client.edit_message_text(
+                        chat_id=chat_id, message_id=settings_message_id,
+                        text=result_text, reply_markup=result_keyboard,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return
+                except Exception:
+                    pass
+            sent = await client.send_message(
+                chat_id=chat_id, text=result_text,
+                reply_markup=result_keyboard, parse_mode=ParseMode.HTML,
             )
+            _settings_owner[(chat_id, sent.id)] = user_id
 
         except Exception as e:
             await message.reply_text(f"<b>Error saving thumbnail:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
 
-    # ── Font file document handler (DM only) ──────────────────────────────────
+    # ── Font file document handler (DM + allowed groups) ─────────────────────
 
     @app.on_message(filters.document & (filters.private | filters.chat(config.allowed_group_ids)))
     async def handle_font_upload(client: Client, message: Message):
@@ -1562,7 +1602,9 @@ def setup_settings_handlers(app: Client, user_settings, config):
         if not (isinstance(state_data, dict) and state_data.get("state") == "waiting_wm_font"):
             return
 
-        prompt_message_id = state_data.get("prompt_message_id")
+        prompt_message_id   = state_data.get("prompt_message_id")
+        chat_id             = state_data.get("chat_id", user_id)
+        settings_message_id = state_data.get("settings_message_id")
         doc = message.document
 
         if not doc:
@@ -1598,18 +1640,31 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
             del us.temp_state[user_id]
 
-            try:
-                await client.delete_messages(chat_id=user_id, message_ids=[prompt_message_id, message.id])
-            except Exception:
-                pass
+            ids = [i for i in [prompt_message_id, message.id] if i]
+            if ids:
+                try:
+                    await client.delete_messages(chat_id=chat_id, message_ids=ids)
+                except Exception:
+                    pass
 
             wm = us.get_watermark()
-            await client.send_message(
-                user_id,
-                build_watermark_text(wm, f"Font set to <b>{font_name}</b> ✓"),
-                reply_markup=build_watermark_keyboard(wm),
-                parse_mode=ParseMode.HTML
+            result_text     = build_watermark_text(wm, f"Font set to <b>{font_name}</b> ✓")
+            result_keyboard = build_watermark_keyboard(wm)
+            if settings_message_id:
+                try:
+                    await client.edit_message_text(
+                        chat_id=chat_id, message_id=settings_message_id,
+                        text=result_text, reply_markup=result_keyboard,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return
+                except Exception:
+                    pass
+            sent = await client.send_message(
+                chat_id=chat_id, text=result_text,
+                reply_markup=result_keyboard, parse_mode=ParseMode.HTML,
             )
+            _settings_owner[(chat_id, sent.id)] = user_id
 
         except Exception as e:
             await message.reply_text(f"<b>Error saving font:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)

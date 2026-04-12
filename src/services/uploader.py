@@ -8,6 +8,30 @@ MAX_NON_PREMIUM_BYTES = int(1.95 * 1024 ** 3)
 MAX_PREMIUM_BYTES = int(3.95 * 1024 ** 3)
 _SPEED_UPDATE_INTERVAL = 0.5
 
+# Upload speed cap: 20 Mbps = 25 MB/s
+_UPLOAD_CAP_BPS: float = 200 * 1024 * 1024 / 8   # 2,621,440 bytes/s
+
+
+class _TokenBucket:
+
+    def __init__(self, rate_bps: float):
+        self._rate   = rate_bps 
+        self._tokens = rate_bps 
+        self._last   = time.monotonic()
+
+    async def consume(self, n_bytes: int):
+        while True:
+            now = time.monotonic()
+            elapsed = now - self._last
+            self._tokens = min(self._rate, self._tokens + elapsed * self._rate)
+            self._last = now
+
+            if self._tokens >= n_bytes:
+                self._tokens -= n_bytes
+                return
+            deficit = n_bytes - self._tokens
+            await asyncio.sleep(deficit / self._rate)
+
 class Uploader:
     def __init__(self, client, task_data: dict, task_queue=None, tmp_dir: str = None, ffmpeg=None, user_is_premium: bool = False):
         self.client = client
@@ -28,6 +52,7 @@ class Uploader:
         self._current_part_size = 0
         self._cached_speed = 0.0
         self._cached_eta = 0
+        self._bucket = _TokenBucket(_UPLOAD_CAP_BPS)
 
         self.upload_progress = {
             "total_size": 0,
@@ -101,6 +126,8 @@ class Uploader:
         results = []
         try:
             for part_idx, (part_path, part_name) in enumerate(parts, start=1):
+                if part_idx > 1:
+                    await asyncio.sleep(3)
                 self.upload_progress["current_part"] = part_idx
                 self._current_part_size = os.path.getsize(part_path)
                 self._last_time = None
@@ -128,6 +155,7 @@ class Uploader:
                         video=part_path,
                         thumb=thumb,
                         caption=caption,
+                        file_name=part_name,
                         supports_streaming=True,
                         progress=self._progress_callback,
                     )
@@ -151,6 +179,10 @@ class Uploader:
 
     async def _progress_callback(self, current: int, total: int):
         now = time.time()
+
+        delta = current - self._last_bytes if self._last_bytes and current > self._last_bytes else 0
+        if delta > 0:
+            await self._bucket.consume(delta)
 
         overall_uploaded = self._total_uploaded_bytes + current
         overall_pct = (

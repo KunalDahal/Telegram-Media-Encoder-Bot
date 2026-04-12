@@ -147,8 +147,3 @@ class Downloader:
         }
         self._start_time = None
         self._last_cb_time = None
-        self._last_cb_bytes = 0
-        self._declared_size = getattr(self, "_declared_size", 0)
-
-    def get_progress(self) -> dict:
-        return self.download_progress.copy()
