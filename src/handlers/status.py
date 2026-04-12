@@ -191,15 +191,30 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             return
 
         # Execute cancellation
+        from src.handlers.cancel import get_worker_instance  # local import to avoid circular
+        worker = get_worker_instance()
+
         cancelled = 0
         for tid in list(task_queue.queue):
             task = task_queue.get_task(tid)
-            if task and task.get("status") in _ACTIVE_STATUSES:
-                try:
+            if not task or task.get("status") not in _ACTIVE_STATUSES:
+                continue
+            try:
+                status = task.get("status", "")
+                if status == "queued":
+                    # Task hasn't started yet — safe to remove directly.
                     task_queue.remove_task(tid)
-                    cancelled += 1
-                except Exception as e:
-                    print(f"[status] failed to cancel task {tid}: {e}")
+                else:
+                    # Task is actively running (downloading / encoding / uploading).
+                    # Must go through the worker so the asyncio task and ffmpeg
+                    # process are actually killed; remove_task alone is not enough.
+                    if worker:
+                        await worker.cancel_task(tid)
+                    else:
+                        task_queue.remove_task(tid)
+                cancelled += 1
+            except Exception as e:
+                print(f"[status] failed to cancel task {tid}: {e}")
 
         try:
             await callback_query.message.edit_text(
@@ -361,7 +376,11 @@ def _build_task_block(idx: int, task: dict) -> str:
         if eta_str:   parts.append(f"ETA: {eta_str}")
         b += f"┠ {' | '.join(parts)}\n"
 
-    b += f"┠ Elapsed: {_fmt_elapsed(task.get('started_at'))}\n"
+    dc = task.get("dc")
+    if dc:
+        b += f"┠ DC: DC{dc}\n"
+
+    b += f"┠ Elapsed: {_elapsed_for_task(task)}\n"
     b += f"┠ User: {user_str}\n"
     b += f"┠ ID: <code>{task.get('user_id', '?')}</code>\n"
     b += f"┖ <code>/cancel {task_id[:8]}</code>"
@@ -474,19 +493,53 @@ def _fmt_eta(seconds: int) -> str:
     return f"{seconds}s"
 
 
-def _fmt_elapsed(started_at: str) -> str:
-    if not started_at:
+def _fmt_secs(secs: int) -> str:
+    h, rem = divmod(secs, 3600)
+    m, s   = divmod(rem, 60)
+    if h: return f"{h}h {m}m"
+    if m: return f"{m}m {s}s"
+    return f"{s}s"
+
+
+def _elapsed_for_task(task: dict) -> str:
+
+    status     = task.get("status", "")
+    started_at = task.get("started_at")
+
+    if status in ("queued", "starting") or not started_at:
         return "—"
+
     try:
         started = datetime.fromisoformat(started_at)
-        secs    = max(0, int((datetime.utcnow() - started).total_seconds()))
-        h, rem  = divmod(secs, 3600)
-        m, s    = divmod(rem, 60)
-        if h: return f"{h}h {m}m"
-        if m: return f"{m}m {s}s"
-        return f"{s}s"
     except Exception:
         return "—"
+
+    now = datetime.utcnow()
+
+    if status == "downloading":
+        return _fmt_secs(max(0, int((now - started).total_seconds())))
+
+    if status == "ready":
+        completed_at = task.get("download_completed_at")
+        if completed_at:
+            try:
+                completed = datetime.fromisoformat(completed_at)
+                return _fmt_secs(max(0, int((completed - started).total_seconds())))
+            except Exception:
+                pass
+        return _fmt_secs(max(0, int((now - started).total_seconds())))
+
+    if status in ("encoding", "uploading"):
+        encode_started_at = task.get("encode_started_at")
+        if encode_started_at:
+            try:
+                encode_started = datetime.fromisoformat(encode_started_at)
+                return _fmt_secs(max(0, int((now - encode_started).total_seconds())))
+            except Exception:
+                pass
+        return _fmt_secs(max(0, int((now - started).total_seconds())))
+
+    return _fmt_secs(max(0, int((now - started).total_seconds())))
 
 
 def _fmt_uptime(secs: int) -> str:

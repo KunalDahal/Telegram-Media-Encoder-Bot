@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shutil
+from datetime import datetime
 
 from pyrogram.errors import FloodWait
 
@@ -10,6 +11,9 @@ from src.services.uploader import Uploader
 
 
 class Worker:
+    JOB_COOLDOWN: int = 10
+    TASK_COOLDOWN: int = 30
+
     def __init__(self, task_queue, user_settings_getter, ffmpeg, client, config):
         self.task_queue = task_queue
         self.user_settings_getter = user_settings_getter
@@ -78,6 +82,11 @@ class Worker:
                 self._current_asyncio_task = None
                 self._current_task_id = None
 
+            # ── Cool down before picking up the next task ─────────────────────
+            if self.running and self._next_queued_task():
+                print(f"[Worker] Cooling down for {self.TASK_COOLDOWN}s before next task.")
+                await asyncio.sleep(self.TASK_COOLDOWN)
+
     def _next_queued_task(self):
         for task_id in self.task_queue.queue:
             task = self.task_queue.get_task(task_id)
@@ -109,6 +118,11 @@ class Worker:
             task["output_filename"] = job["output_filename"]
             task["current_job_mode"] = job.get("processing_mode", "encode")
 
+            # ── Cool down between jobs (e.g. 1080p → 720p → 480p) ────────────
+            if idx > 1 and self.JOB_COOLDOWN > 0:
+                print(f"[Worker] Job cooldown {self.JOB_COOLDOWN}s before job {idx}/{len(jobs)}")
+                await asyncio.sleep(self.JOB_COOLDOWN)
+
             encoded_path = await self._encode(task, downloaded_path, job)
             await self._upload(task, encoded_path, job)
 
@@ -128,6 +142,7 @@ class Worker:
         prefetched = task.get("_downloaded_path", "")
         if prefetched and os.path.exists(prefetched):
             print(f"[Worker] Using prefetched file for {task_id[:8]}")
+            task.setdefault("download_completed_at", datetime.utcnow().isoformat())
             self.task_queue.update_status(task_id, "ready", 0)
             return prefetched
 
@@ -140,6 +155,7 @@ class Worker:
                 pass
             prefetched = task.get("_downloaded_path", "")
             if prefetched and os.path.exists(prefetched):
+                task.setdefault("download_completed_at", datetime.utcnow().isoformat())
                 self.task_queue.update_status(task_id, "ready", 0)
                 return prefetched
 
@@ -154,6 +170,7 @@ class Worker:
             raise Exception("Download returned no valid file path")
 
         task["_downloaded_path"] = path
+        task["download_completed_at"] = datetime.utcnow().isoformat()
         self.task_queue.update_status(task_id, "ready", 0)
         return path
 
@@ -191,6 +208,7 @@ class Worker:
             path = await downloader.download(client=self.client, task_data=task)
             if path and os.path.exists(path):
                 task["_downloaded_path"] = path
+                task["download_completed_at"] = datetime.utcnow().isoformat()
                 self.task_queue.update_status(task_id, "ready", 0)
                 print(f"[Worker] Prefetch done for {task_id[:8]}")
             else:
@@ -210,6 +228,7 @@ class Worker:
 
     async def _encode(self, task: dict, input_path: str, job: dict) -> str:
         task_id = task["task_id"]
+        task["encode_started_at"] = datetime.utcnow().isoformat()
         self.task_queue.update_status(task_id, "encoding", 0)
         # Reset encode progress on the live task dict so status.py sees 0 immediately
         task["encode_progress"] = {"percentage": 0.0}
@@ -314,7 +333,6 @@ class Worker:
             return False
 
     def _legacy_job(self, task: dict) -> dict:
-        """Compatibility: build a single job from a flat task (old-style tasks)."""
         resolution = task.get("resolution", "1080p")
         return {
             "resolution":      resolution,

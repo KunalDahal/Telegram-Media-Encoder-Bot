@@ -2,6 +2,8 @@ import asyncio
 import uuid
 from datetime import datetime
 
+from src.utils.dc_checker import get_file_dc
+
 _ACTIVE_STATUSES = frozenset({
     "starting", "queued", "downloading", "ready", "encoding", "uploading"
 })
@@ -17,12 +19,16 @@ class TaskQueue:
 
     def create_task(self, task_data: dict) -> str:
         task_id = str(uuid.uuid4())[:8]
+        file_id = task_data.get("file_id", "")
+        dc      = get_file_dc(file_id) if file_id else None
+
         task = {
             "task_id":    task_id,
             "created_at": datetime.utcnow().isoformat(),
             "started_at": None,
             "status":     "queued",
             "progress":   0,
+            "dc":         dc,
         }
         task.update(task_data)
         self.tasks[task_id] = task

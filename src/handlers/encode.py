@@ -8,6 +8,8 @@ from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import Message
 import logging
 
+from src.utils.dc_checker import is_dc_allowed
+
 logger = logging.getLogger(__name__)
 
 ALLOWED_VIDEO_EXTENSIONS = {
@@ -54,11 +56,7 @@ async def _check_access(client, message: Message, config) -> bool:
 # ── Command parser ────────────────────────────────────────────────────────────
 
 def _parse_encode_command(message) -> tuple:
-    """Parse encode command from a Pyrogram Message object.
-    Uses message.text to preserve special characters like @, [, ] intact.
-    """
     text = message.text or ""
-    # Strip the command prefix (/e, /encode, /e@botname, etc.)
     text = re.sub(r"^/\S+\s*", "", text).strip()
 
     batch       = False
@@ -219,6 +217,10 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
         return
 
     file_id, original_file_name, file_size = _file_info(replied)
+
+    if not is_dc_allowed(file_id):
+        return
+
     resolutions = get_selected_resolutions(settings)
     ep_str = None
     if "{episode}" in template:
@@ -283,7 +285,7 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
         status_msg = await message.reply_text("⏳ Fetching media group…")
         raw_msgs   = await fetch_media_group(client, message.chat.id, replied)
 
-    valid_files = [m for m in raw_msgs if _is_video(m)]
+    valid_files = [m for m in raw_msgs if _is_video(m) and is_dc_allowed(_file_info(m)[0])]
     skipped     = len(raw_msgs) - len(valid_files)
 
     if not valid_files:

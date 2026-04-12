@@ -323,7 +323,7 @@ class FFmpeg:
         duration_secs: float = 0.0,
         progress_cb=None,
     ) -> tuple[bool, str | None]:
-        use_progress = bool(progress_cb and duration_secs > 0.5)
+        use_progress = bool(progress_cb)  # always pipe progress when a cb is given
 
         if use_progress:
             out_file = cmd[-1]
@@ -371,19 +371,66 @@ class FFmpeg:
         stderr_chunks: list[bytes] = []
 
         async def _read_stdout():
+            # Tracks the best elapsed-time value seen so far from any key.
+            # Priority: out_time_us > out_time_ms > out_time (HH:MM:SS)
+            _elapsed: list[float] = [0.0]   # mutable cell for the closure
+
+            def _parse_elapsed(key: str, val: str) -> float | None:
+                """Return elapsed seconds from a -progress key=value pair, or None.
+
+                Modern ffmpeg outputs out_time_us and out_time_ms with the *same*
+                microsecond value (the '_ms' name is a long-standing ffmpeg misnomer,
+                see ffmpeg trac #10413).  Dividing out_time_ms by 1_000 therefore
+                yields milliseconds instead of seconds, inflating _elapsed[0] by
+                1000× and freezing the progress bar.
+
+                We skip out_time_ms entirely: out_time_us is always present, appears
+                first in the progress block, and carries the same data correctly.
+                out_time is kept as a fallback for older ffmpeg builds that may lack
+                out_time_us.
+                """
+                val = val.strip()
+                if val in ("N/A", "n/a", ""):
+                    return None
+                try:
+                    if key == "out_time_us":
+                        return int(val) / 1_000_000
+                    # out_time_ms intentionally omitted: same microsecond value as
+                    # out_time_us but appears *after* it; dividing by 1_000 gives ms,
+                    # not seconds, which would corrupt _elapsed[0] on every batch.
+                    if key == "out_time":
+                        # format: HH:MM:SS.microseconds  (fallback for older ffmpeg)
+                        parts = val.split(":")
+                        if len(parts) == 3:
+                            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+                except (ValueError, IndexError):
+                    pass
+                return None
+
             try:
+                line_count = 0
                 async for raw in process.stdout:
                     line = raw.decode("utf-8", errors="ignore").strip()
+                    line_count += 1
+                    if line_count == 1:
+                        print(f"[FFmpeg] stdout is live, first line: {line!r}")
                     if "=" not in line:
                         continue
                     key, _, val = line.partition("=")
-                    if key == "out_time_us":
+                    elapsed = _parse_elapsed(key, val)
+                    if elapsed is not None and elapsed > _elapsed[0]:
+                        _elapsed[0] = elapsed
+                        if duration_secs > 0.5:
+                            pct = min(99.9, elapsed / duration_secs * 100)
+                        else:
+                            import math as _math
+                            pct = min(99.0, _math.atan(elapsed / 60.0) / (_math.pi / 2) * 99.0)
+                        print(f"[FFmpeg] elapsed={elapsed:.2f}s dur={duration_secs:.2f}s pct={pct:.2f}%")
                         try:
-                            elapsed_secs = int(val) / 1_000_000
-                            pct = min(99.9, elapsed_secs / duration_secs * 100)
                             await progress_cb(pct)
-                        except (ValueError, ZeroDivisionError):
+                        except Exception:
                             pass
+                print(f"[FFmpeg] stdout loop ended, total lines={line_count}")
             except asyncio.CancelledError:
                 raise
             except Exception:

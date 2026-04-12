@@ -8,6 +8,8 @@ from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import Message
 import logging
 
+from src.utils.dc_checker import is_dc_allowed
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -275,12 +277,16 @@ async def _process_single_rename(
         )
         return
 
+    file_id, original_file_name, file_size = _file_info(replied)
+
+    if not is_dc_allowed(file_id):
+        return
+
     user_id      = message.from_user.id
     settings_obj = user_settings(user_id)
     settings     = copy.deepcopy(settings_obj.get())
     watermark    = settings_obj.get_watermark()
 
-    file_id, original_file_name, file_size = _file_info(replied)
     created_at = datetime.utcnow().isoformat()
 
     task_data = _build_task(
@@ -351,7 +357,7 @@ async def _process_batch_rename(
     episode_raw = str(settings.get("default_start_episode", "1"))
 
     season_width = max(len(season_raw), 1)
-    ep_width     = max(len(episode_raw), 2)  # always at least 2 digits: 01, 02 …
+    ep_width     = max(len(episode_raw), 2)
     season_int   = int(season_raw)
     ep_int       = int(episode_raw)
     season_str   = str(season_int).zfill(season_width)
@@ -385,7 +391,7 @@ async def _process_batch_rename(
     valid_files: list[Message] = []
     skipped = 0
     for mg_msg in raw_msgs:
-        if _is_video_message(mg_msg):
+        if _is_video_message(mg_msg) and is_dc_allowed(_file_info(mg_msg)[0]):
             valid_files.append(mg_msg)
         else:
             skipped += 1
