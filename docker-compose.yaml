@@ -8,7 +8,6 @@ services:
     volumes:
       - ./src/bin:/app/src/bin
       - ./encode_bot.session:/app/encode_bot.session
-    cpus: 3.0
     logging:
       driver: "json-file"
       options:
