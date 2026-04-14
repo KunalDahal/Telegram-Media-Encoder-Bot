@@ -400,7 +400,7 @@ async def process_encode_command(client: Client, message: Message, task_queue, u
 def setup_encode_handlers(app: Client, task_queue, user_settings, config):
     allowed_group_filter = filters.chat(config.allowed_group_ids)
 
-    @app.on_message(filters.command(["e", "encode"]) & allowed_group_filter)
+    @app.on_message(filters.command(["e1", "encode1"]) & allowed_group_filter)
     async def encode_command(client: Client, message: Message):
         if not await _check_access(client, message, config):
             return

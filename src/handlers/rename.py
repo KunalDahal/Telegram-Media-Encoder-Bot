@@ -490,7 +490,7 @@ async def process_rename_command(
 def setup_rename_handler(app: Client, task_queue, user_settings, config):
     allowed_group_filter = filters.chat(config.allowed_group_ids)
 
-    @app.on_message(filters.command(["r", "rename"]) & allowed_group_filter)
+    @app.on_message(filters.command(["r1", "rename1"]) & allowed_group_filter)
     async def rename_command(client: Client, message: Message):
         if not await _check_access(client, message, config):
             return

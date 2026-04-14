@@ -257,7 +257,7 @@ def setup_ocean_handlers(app: Client, user_settings, config):
 
     # ── /set command ──────────────────────────────────────────────────────────
     @app.on_message(
-        filters.command("set")
+        filters.command("set1")
         & (filters.private | filters.chat(config.allowed_group_ids))
     )
     async def cmd_set(client: Client, message: Message):

@@ -87,7 +87,7 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
     # CallbackQuery objects and raises AttributeError. Access is checked
     # manually inside each handler instead.
 
-    @app.on_message(filters.command(["s", "status"]) & allowed_filter)
+    @app.on_message(filters.command(["s1", "status1"]) & allowed_filter)
     async def status_command(client: Client, message: Message):
         if not await _check_access(client, message, admin_ids):
             return

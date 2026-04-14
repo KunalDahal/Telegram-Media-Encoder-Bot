@@ -724,7 +724,7 @@ async def _show_help(message: Message, page: int, config: Config, edit: bool = F
 def setup_start_handler(app, config: Config):
 
     @app.on_message(
-        filters.command(["start", "help"])
+        filters.command(["start1", "help1"])
         & (filters.private | filters.chat(config.allowed_group_ids))
     )
     async def start_handler(client, message: Message):
