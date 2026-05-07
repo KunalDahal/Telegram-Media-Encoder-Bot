@@ -82,11 +82,6 @@ async def _check_access(client, message: Message, admin_ids: list) -> bool:
 def setup_status_handlers(app: Client, task_queue, admin_ids, config):
     allowed_filter = filters.chat(config.allowed_group_ids)
 
-    # NOTE: callback_query handlers intentionally do NOT use allowed_filter.
-    # filters.chat() tries to access update.chat which doesn't exist on
-    # CallbackQuery objects and raises AttributeError. Access is checked
-    # manually inside each handler instead.
-
     @app.on_message(filters.command(["s", "status"]) & allowed_filter)
     async def status_command(client: Client, message: Message):
         if not await _check_access(client, message, admin_ids):
@@ -95,7 +90,6 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
         chat_id = message.chat.id
         _cancel_refresh(chat_id)
 
-        # Delete previous status message if it exists
         old_id = _active_status.pop(chat_id, None)
         if old_id:
             try:
@@ -115,7 +109,6 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
 
     @app.on_callback_query(filters.regex(r"^status_page:"))
     async def status_page_callback(client: Client, callback_query):
-        # Manual access check (no filters.chat — see note above)
         chat_id = callback_query.message.chat.id
         if chat_id not in config.allowed_group_ids:
             return
@@ -138,7 +131,7 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             return
 
         _active_page[chat_id] = page
-        _last_content.pop(chat_id, None)  # force re-render on page change
+        _last_content.pop(chat_id, None)  
         await show_status(client, callback_query.message, task_queue, page=page, is_callback=True)
 
     # ── Cancel All — confirm ───────────────────────────────────────────────────
@@ -190,8 +183,7 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
                               page=_active_page.get(chat_id, 0), is_callback=True)
             return
 
-        # Execute cancellation
-        from src.handlers.cancel import get_worker_instance  # local import to avoid circular
+        from src.handlers.cancel import get_worker_instance
         worker = get_worker_instance()
 
         cancelled = 0
@@ -202,12 +194,8 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             try:
                 status = task.get("status", "")
                 if status == "queued":
-                    # Task hasn't started yet — safe to remove directly.
                     task_queue.remove_task(tid)
                 else:
-                    # Task is actively running (downloading / encoding / uploading).
-                    # Must go through the worker so the asyncio task and ffmpeg
-                    # process are actually killed; remove_task alone is not enough.
                     if worker:
                         await worker.cancel_task(tid)
                     else:
@@ -280,7 +268,7 @@ async def show_status(client, message, task_queue, page=0, is_callback=False):
     if is_callback:
         chat_id = message.chat.id
         if _last_content.get(chat_id) == text:
-            return  # No change — skip the edit to avoid MessageNotModified
+            return
         try:
             await message.edit_text(
                 text,

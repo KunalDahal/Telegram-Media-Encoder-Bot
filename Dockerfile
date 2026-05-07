@@ -13,8 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY run.py .
 COPY src/ ./src/
-COPY .env .
-COPY encode_bot.session* ./
 
 RUN mkdir -p src/bin/ffmpeg src/bin/tmp src/bin/users src/bin/logs
 

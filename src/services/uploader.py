@@ -8,8 +8,7 @@ MAX_NON_PREMIUM_BYTES = int(1.95 * 1024 ** 3)
 MAX_PREMIUM_BYTES = int(3.95 * 1024 ** 3)
 _SPEED_UPDATE_INTERVAL = 0.5
 
-# Upload speed cap: 20 Mbps = 25 MB/s
-_UPLOAD_CAP_BPS: float = 200 * 1024 * 1024 / 8   # 2,621,440 bytes/s
+_UPLOAD_CAP_BPS: float = 200 * 1024 * 1024 / 8   
 
 
 class _TokenBucket:

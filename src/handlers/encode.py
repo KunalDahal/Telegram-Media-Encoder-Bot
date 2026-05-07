@@ -34,7 +34,6 @@ async def _safe_edit(msg, text: str):
     except Exception:
         pass
 
-# ── Access guard ──────────────────────────────────────────────────────────────
 
 async def _check_access(client, message: Message, config) -> bool:
     user_id = message.from_user.id
@@ -52,8 +51,6 @@ async def _check_access(client, message: Message, config) -> bool:
         return False
     return True
 
-
-# ── Command parser ────────────────────────────────────────────────────────────
 
 def _parse_encode_command(message) -> tuple:
     text = message.text or ""
@@ -104,8 +101,6 @@ def _parse_encode_command(message) -> tuple:
     return batch, batch_count, template, None
 
 
-# ── Filename / job helpers ────────────────────────────────────────────────────
-
 def get_selected_resolutions(settings: dict) -> list:
     resolutions = settings.get("resolutions") or [settings.get("resolution", "1080p")]
     normalized  = [r for r in resolutions if r in SUPPORTED_RESOLUTIONS]
@@ -147,8 +142,6 @@ def build_jobs(template: str, episode: str | None, resolutions: list, settings_o
         })
     return jobs
 
-
-# ── Media fetchers ────────────────────────────────────────────────────────────
 
 async def fetch_media_group(client: Client, chat_id: int, replied: Message) -> list:
     media_group_id = replied.media_group_id
@@ -205,8 +198,6 @@ def _source_thumbnail_file_id(msg: Message) -> str:
     return getattr(thumbs[-1], "file_id", "") or ""
 
 
-# ── Single encode ─────────────────────────────────────────────────────────────
-
 async def _process_single_encode(client, message, task_queue, settings_obj, settings, template):
     replied = message.reply_to_message
     if not _is_video(replied):
@@ -235,6 +226,7 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
         "first_name":         message.from_user.first_name,
         "username":           message.from_user.username,
         "chat_id":            message.chat.id,
+        "source_chat_id":     message.chat.id,
         "message_id":         message.id,
         "file_id":            file_id,
         "original_file_name": original_file_name,
@@ -265,8 +257,6 @@ async def _process_single_encode(client, message, task_queue, settings_obj, sett
         "Output will be delivered to your DM."
     )
 
-
-# ── Batch encode ──────────────────────────────────────────────────────────────
 
 async def _process_batch_encode(client, message, task_queue, settings_obj, settings, template, batch_count):
     replied     = message.reply_to_message
@@ -314,6 +304,7 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
             "first_name":         message.from_user.first_name,
             "username":           message.from_user.username,
             "chat_id":            message.chat.id,
+            "source_chat_id":     message.chat.id,
             "message_id":         message.id,
             "file_id":            file_id,
             "original_file_name": original_file_name,
@@ -357,8 +348,6 @@ async def _process_batch_encode(client, message, task_queue, settings_obj, setti
     await _safe_edit(status_msg, "\n".join(lines))
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-
 async def process_encode_command(client: Client, message: Message, task_queue, user_settings):
     if not message.reply_to_message:
         await message.reply_text(
@@ -394,8 +383,6 @@ async def process_encode_command(client: Client, message: Message, task_queue, u
             client, message, task_queue, settings_obj, settings, template
         )
 
-
-# ── Handler registration ──────────────────────────────────────────────────────
 
 def setup_encode_handlers(app: Client, task_queue, user_settings, config):
     allowed_group_filter = filters.chat(config.allowed_group_ids)

@@ -64,13 +64,6 @@ def setup_cancel_handlers(app: Client, task_queue, config):
                 matching_task_id = tid
                 break
 
-        if not matching_task_id:
-            await message.reply_text(
-                f"No task found matching <code>{task_id_part}</code>.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-            return
-
         task = task_queue.get_task(matching_task_id)
         if not task:
             await message.reply_text(
