@@ -82,7 +82,7 @@ async def _check_access(client, message: Message, admin_ids: list) -> bool:
 def setup_status_handlers(app: Client, task_queue, admin_ids, config):
     allowed_filter = filters.chat(config.allowed_group_ids)
 
-    @app.on_message(filters.command(["s1", "status1"]) & allowed_filter)
+    @app.on_message(filters.command(["s", "status"]) & allowed_filter)
     async def status_command(client: Client, message: Message):
         if not await _check_access(client, message, admin_ids):
             return

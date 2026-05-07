@@ -81,6 +81,6 @@ def setup_mediainfo_handlers(app, config=None):
     app.add_handler(
         MessageHandler(
             _handle_mi_command,
-            filters.command("mi1"),
+            filters.command("mi"),
         )
     )

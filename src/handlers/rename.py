@@ -38,8 +38,6 @@ async def _safe_edit(msg, text: str):
         pass
 
 
-# ── Guard helpers ─────────────────────────────────────────────────────────────
-
 async def fetch_media_group(client: Client, chat_id: int, replied: Message) -> list:
     media_group_id = replied.media_group_id
     start_id = max(1, replied.id - 3)
@@ -93,8 +91,6 @@ async def _check_access(client, message: Message, config) -> bool:
     return True
 
 
-# ── File helpers ──────────────────────────────────────────────────────────────
-
 def _valid_extension(filename: str) -> bool:
     if not filename:
         return False
@@ -135,8 +131,6 @@ def _is_video_message(msg: Message) -> bool:
         return ext in ALLOWED_VIDEO_EXTENSIONS
     return False
 
-
-# ── Command parsing ───────────────────────────────────────────────────────────
 
 def _parse_rename_command(message):
     message_text = message.text or ""
@@ -193,8 +187,6 @@ def _resolve_template(template: str, season_str: str, ep_str: str) -> str:
     return filename
 
 
-# ── Task builder ──────────────────────────────────────────────────────────────
-
 def _build_task(
     *,
     message: Message,
@@ -222,6 +214,7 @@ def _build_task(
         "first_name":                message.from_user.first_name,
         "username":                  message.from_user.username,
         "chat_id":                   message.chat.id,
+        "source_chat_id":            message.chat.id,
         "message_id":                message.id,
         "file_id":                   file_id,
         "original_file_name":        original_file_name,
@@ -245,8 +238,6 @@ def _build_task(
         "batch_rename":              batch,
     }
 
-
-# ── Single rename ─────────────────────────────────────────────────────────────
 
 async def _process_single_rename(
     client: Client,
@@ -315,8 +306,6 @@ async def _process_single_rename(
     )
 
 
-# ── Batch rename ──────────────────────────────────────────────────────────────
-
 async def _process_batch_rename(
     client: Client,
     message: Message,
@@ -362,7 +351,6 @@ async def _process_batch_rename(
     ep_int       = int(episode_raw)
     season_str   = str(season_int).zfill(season_width)
 
-    # ── Fetch files ───────────────────────────────────────────────────────────
     if batch_count is not None:
         status_msg  = await message.reply_text(f"⏳ Fetching {batch_count} messages…")
         raw_msgs    = await fetch_sequential_messages(
@@ -457,8 +445,6 @@ async def _process_batch_rename(
     await _safe_edit(status_msg, "\n".join(lines))
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-
 async def process_rename_command(
     client: Client,
     message: Message,
@@ -485,12 +471,10 @@ async def process_rename_command(
         await _process_single_rename(client, message, filename, task_queue, user_settings)
 
 
-# ── Handler registration ──────────────────────────────────────────────────────
-
 def setup_rename_handler(app: Client, task_queue, user_settings, config):
     allowed_group_filter = filters.chat(config.allowed_group_ids)
 
-    @app.on_message(filters.command(["r1", "rename1"]) & allowed_group_filter)
+    @app.on_message(filters.command(["r", "rename"]) & allowed_group_filter)
     async def rename_command(client: Client, message: Message):
         if not await _check_access(client, message, config):
             return

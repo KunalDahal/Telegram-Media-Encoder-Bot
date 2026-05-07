@@ -9,7 +9,7 @@ def setup_set_handlers(app: Client, user_settings, config):
 
     allowed_filter = filters.chat(config.allowed_group_ids) | filters.private
 
-    @app.on_message(filters.command(["st1", "setthumb1"]) & allowed_filter)
+    @app.on_message(filters.command(["st", "setthumb"]) & allowed_filter)
     async def set_thumbnail_command(client: Client, message: Message):
         user_id = message.from_user.id
 

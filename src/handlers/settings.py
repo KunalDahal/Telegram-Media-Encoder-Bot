@@ -436,7 +436,7 @@ def setup_settings_handlers(app: Client, user_settings, config):
 
     # ── /es — allowed groups + DM ─────────────────────────────────────────────
     @app.on_message(
-        filters.command(["es1", "us1", "encodesettings1", "settings1", "usersettings1"])
+        filters.command(["es", "us", "encodesettings", "settings", "usersettings"])
         & (filters.private | filters.chat(config.allowed_group_ids))
     )
     async def us_command(client: Client, message: Message):

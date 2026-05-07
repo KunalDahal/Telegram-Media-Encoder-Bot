@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shutil
+import time
 from datetime import datetime
 
 from pyrogram.errors import FloodWait
@@ -25,14 +26,11 @@ class Worker:
         self.running = False
         self._current_task_id = None
         self._current_asyncio_task: asyncio.Task | None = None
-        # prefetch: at most one background download at a time
         self._prefetch_task: asyncio.Task | None = None
         self._prefetch_task_id: str | None = None
 
         os.makedirs(self.temp_base, exist_ok=True)
         os.makedirs(self.thumbnails_dir, exist_ok=True)
-
-    # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def start(self):
         self.running = True
@@ -52,8 +50,6 @@ class Worker:
                 folder = os.path.join(self.temp_base, name)
                 if os.path.isdir(folder) and name not in active_ids:
                     shutil.rmtree(folder, ignore_errors=True)
-
-    # ── Main loop ─────────────────────────────────────────────────────────────
 
     async def _worker_loop(self):
         while self.running:
@@ -82,7 +78,6 @@ class Worker:
                 self._current_asyncio_task = None
                 self._current_task_id = None
 
-            # ── Cool down before picking up the next task ─────────────────────
             if self.running and self._next_queued_task():
                 print(f"[Worker] Cooling down for {self.TASK_COOLDOWN}s before next task.")
                 await asyncio.sleep(self.TASK_COOLDOWN)
@@ -94,10 +89,9 @@ class Worker:
                 return task
         return None
 
-    # ── Task runner ───────────────────────────────────────────────────────────
-
     async def _run_task(self, task: dict):
         task_id = task["task_id"]
+        task["_start_time"] = time.time()
         self.task_queue.update_status(task_id, "starting", 0)
 
         await self._snapshot_thumbnail(task)
@@ -106,7 +100,6 @@ class Worker:
         if not downloaded_path:
             raise Exception("Download produced no file")
 
-        # Kick off prefetch for the next queued task (fire-and-forget)
         asyncio.create_task(self._maybe_prefetch_next(task_id))
 
         jobs = task.get("jobs") or [self._legacy_job(task)]
@@ -118,13 +111,13 @@ class Worker:
             task["output_filename"] = job["output_filename"]
             task["current_job_mode"] = job.get("processing_mode", "encode")
 
-            # ── Cool down between jobs (e.g. 1080p → 720p → 480p) ────────────
             if idx > 1 and self.JOB_COOLDOWN > 0:
                 print(f"[Worker] Job cooldown {self.JOB_COOLDOWN}s before job {idx}/{len(jobs)}")
                 await asyncio.sleep(self.JOB_COOLDOWN)
 
             encoded_path = await self._encode(task, downloaded_path, job)
             await self._upload(task, encoded_path, job)
+            await self._send_completion_to_group(task, job, encoded_path)
 
             if os.path.exists(encoded_path):
                 os.remove(encoded_path)
@@ -133,12 +126,63 @@ class Worker:
         await self._notify_user(task["user_id"], f"✅ Task `{task_id[:8]}` completed successfully.")
         self._cleanup_task_folder(task_id)
 
-    # ── Download ──────────────────────────────────────────────────────────────
+    async def _send_completion_to_group(self, task: dict, job: dict, file_path: str):
+        try:
+            source_chat_id = task.get("source_chat_id")
+            if not source_chat_id:
+                return
+
+            file_size_bytes = os.path.getsize(file_path)
+            if file_size_bytes >= 1024 * 1024 * 1024:
+                size_str = f"{file_size_bytes / (1024**3):.2f} GB"
+            elif file_size_bytes >= 1024 * 1024:
+                size_str = f"{file_size_bytes / (1024**2):.2f} MB"
+            else:
+                size_str = f"{file_size_bytes / 1024:.2f} KB"
+
+            elapsed_seconds = int(time.time() - task.get("_start_time", time.time()))
+            if elapsed_seconds < 60:
+                elapsed_str = f"{elapsed_seconds}s"
+            elif elapsed_seconds < 3600:
+                minutes, seconds = divmod(elapsed_seconds, 60)
+                elapsed_str = f"{minutes}m {seconds}s"
+            else:
+                hours, remainder = divmod(elapsed_seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                elapsed_str = f"{hours}h {minutes}m {seconds}s"
+
+            quality = job.get("resolution", "1080p")
+
+            message = (
+                f"`{job['output_filename']}`\n"
+                f"┠ **Elapsed:** {elapsed_str}\n"
+                f"➲ File has been Sent to Bot PM (Private)"
+            )
+
+            await self.client.send_message(
+                chat_id=source_chat_id,
+                text=message,
+                disable_web_page_preview=True
+            )
+            print(f"[Worker] Sent completion message to group {source_chat_id} for task {task['task_id'][:8]}")
+
+        except FloodWait as e:
+            print(f"[Worker] FloodWait in completion message: {e.value}s")
+            await asyncio.sleep(e.value)
+            try:
+                await self.client.send_message(
+                    chat_id=source_chat_id,
+                    text=message,
+                    disable_web_page_preview=True
+                )
+            except Exception as retry_e:
+                print(f"[Worker] Failed to send completion message after FloodWait: {retry_e}")
+        except Exception as e:
+            print(f"[Worker] Failed to send completion message to group: {e}")
 
     async def _download(self, task: dict) -> str:
         task_id = task["task_id"]
 
-        # Use prefetched file if available
         prefetched = task.get("_downloaded_path", "")
         if prefetched and os.path.exists(prefetched):
             print(f"[Worker] Using prefetched file for {task_id[:8]}")
@@ -146,7 +190,6 @@ class Worker:
             self.task_queue.update_status(task_id, "ready", 0)
             return prefetched
 
-        # Wait if this task is currently being prefetched
         if self._prefetch_task_id == task_id and self._prefetch_task and not self._prefetch_task.done():
             print(f"[Worker] Waiting for prefetch to finish for {task_id[:8]}")
             try:
@@ -159,7 +202,6 @@ class Worker:
                 self.task_queue.update_status(task_id, "ready", 0)
                 return prefetched
 
-        # Normal download
         self.task_queue.update_status(task_id, "downloading", 0)
         task["user_is_premium"] = await self._get_user_premium(task["user_id"])
 
@@ -174,11 +216,7 @@ class Worker:
         self.task_queue.update_status(task_id, "ready", 0)
         return path
 
-    # ── Prefetch ──────────────────────────────────────────────────────────────
-
     async def _maybe_prefetch_next(self, current_task_id: str):
-        """Start a background download for the next queued task, if idle."""
-        # Don't stack prefetches
         if self._prefetch_task and not self._prefetch_task.done():
             return
 
@@ -224,13 +262,10 @@ class Worker:
                 self._prefetch_task_id = None
                 self._prefetch_task = None
 
-    # ── Encode ────────────────────────────────────────────────────────────────
-
     async def _encode(self, task: dict, input_path: str, job: dict) -> str:
         task_id = task["task_id"]
         task["encode_started_at"] = datetime.utcnow().isoformat()
         self.task_queue.update_status(task_id, "encoding", 0)
-        # Reset encode progress on the live task dict so status.py sees 0 immediately
         task["encode_progress"] = {"percentage": 0.0}
 
         settings = {
@@ -255,8 +290,6 @@ class Worker:
             raise Exception(f"Encoder returned no path for {job['resolution']}")
         return encoded_path
 
-    # ── Upload ────────────────────────────────────────────────────────────────
-
     async def _upload(self, task: dict, file_path: str, job: dict):
         task_id = task["task_id"]
         self.task_queue.update_status(task_id, "uploading", 0)
@@ -279,10 +312,7 @@ class Worker:
         )
         await uploader.upload()
 
-    # ── Thumbnail helpers ─────────────────────────────────────────────────────
-
     async def _snapshot_thumbnail(self, task: dict):
-        """Copy the user's thumbnail into the task folder so it can't disappear mid-task."""
         src = task.get("thumbnail_path", "")
         if not src or not os.path.exists(src):
             return
@@ -305,7 +335,6 @@ class Worker:
         if not auto_detect:
             return user_thumb if user_thumb and os.path.exists(user_thumb) else None
 
-        # Try source thumbnail from Telegram
         source_thumb_id = task.get("source_thumbnail_file_id", "")
         if source_thumb_id:
             dest = os.path.join(task_folder, "_source_thumb.jpg")
@@ -317,8 +346,6 @@ class Worker:
                 pass
 
         return user_thumb if user_thumb and os.path.exists(user_thumb) else None
-
-    # ── Utilities ─────────────────────────────────────────────────────────────
 
     def _cleanup_task_folder(self, task_id: str):
         folder = os.path.join(self.temp_base, task_id)
@@ -359,10 +386,7 @@ class Worker:
         except Exception as e:
             print(f"[Worker] Notify failed for {user_id}: {e}")
 
-    # ── Cancellation ─────────────────────────────────────────────────────────
-
     async def cancel_task(self, task_id: str):
-        # Cancel prefetch if it's for this task
         if self._prefetch_task_id == task_id and self._prefetch_task and not self._prefetch_task.done():
             self._prefetch_task.cancel()
             try:
@@ -375,11 +399,9 @@ class Worker:
         task = self.task_queue.get_task(task_id)
 
         if task_id == self._current_task_id:
-            # Cancel the running asyncio task — _worker_loop will clean up
             if self._current_asyncio_task and not self._current_asyncio_task.done():
                 self._current_asyncio_task.cancel()
         else:
-            # Task is queued but not running — remove directly
             if task:
                 self.task_queue.remove_task(task_id)
                 self._cleanup_task_folder(task_id)

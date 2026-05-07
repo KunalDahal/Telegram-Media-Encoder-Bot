@@ -3,6 +3,7 @@ services:
     build: .
     container_name: encode-bot
     restart: unless-stopped
+    cpus: 3.5  
     env_file:
       - .env
     volumes:
