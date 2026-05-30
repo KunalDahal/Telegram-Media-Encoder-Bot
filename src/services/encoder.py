@@ -21,13 +21,16 @@ class Encoder:
             raise Exception(f"Input file not found: {input_path}")
 
         # ── Probe duration ────────────────────────────────────────────────────
-        duration_secs = await self._probe_duration(input_path)
-        print(f"[Encoder] {task_id[:8]} duration_secs={duration_secs:.2f}")
-
         try:
-            settings["media_info"] = await self.ffmpeg.probe_media(input_path)
+            media_info = await self.ffmpeg.probe_media(input_path)
         except Exception:
-            settings["media_info"] = {}
+            media_info = {}
+        settings["media_info"] = media_info
+
+        duration_secs = self._duration_from_media_info(media_info)
+        if duration_secs <= 0:
+            duration_secs = await self._probe_duration(input_path, media_info=media_info)
+        print(f"[Encoder] {task_id[:8]} duration_secs={duration_secs:.2f}")
 
         # ── Build and run command ─────────────────────────────────────────────
         cmd = self.ffmpeg.build_command(input_path, temp_output_path, settings)
@@ -74,9 +77,82 @@ class Encoder:
 
         return final_output_path
 
-    async def _probe_duration(self, input_path: str) -> float:
+    async def encode_many(self, task_data: dict, input_path: str, jobs: list[dict], settings_list: list[dict], task_queue=None) -> list[tuple[dict, str]]:
+        task_id = task_data.get("task_id", "enc")
+        task_folder = os.path.dirname(input_path)
+
+        if not jobs:
+            return []
+        if len(jobs) != len(settings_list):
+            raise Exception("Job/settings count mismatch")
+        if not os.path.exists(input_path):
+            raise Exception(f"Input file not found: {input_path}")
+
         try:
-            info = await self.ffmpeg.probe_media(input_path)
+            media_info = await self.ffmpeg.probe_media(input_path)
+        except Exception:
+            media_info = {}
+
+        duration_secs = self._duration_from_media_info(media_info)
+        if duration_secs <= 0:
+            duration_secs = await self._probe_duration(input_path, media_info=media_info)
+        print(f"[Encoder] {task_id[:8]} multi duration_secs={duration_secs:.2f}")
+
+        outputs = []
+        final_paths: list[tuple[dict, str, str]] = []
+        for job, settings in zip(jobs, settings_list):
+            output_filename = job["output_filename"]
+            resolution = job.get("resolution", "1080p")
+            _, ext = os.path.splitext(output_filename)
+            safe_ext = ext or ".mp4"
+            temp_output_path = os.path.join(task_folder, f"_tmp_{task_id[:8]}_{resolution}{safe_ext}")
+            final_output_path = os.path.join(task_folder, output_filename)
+            settings["media_info"] = media_info
+            outputs.append((temp_output_path, settings))
+            final_paths.append((job, temp_output_path, final_output_path))
+
+        cmd = self.ffmpeg.build_multi_command(input_path, outputs)
+
+        def _make_progress_cb(tq, tid):
+            async def _cb(pct: float):
+                if tq is None:
+                    return
+                live_task = tq.tasks.get(tid)
+                if live_task is not None:
+                    live_task["encode_progress"] = {"percentage": round(pct, 1)}
+            return _cb
+
+        success, error = await self.ffmpeg.execute(
+            cmd,
+            duration_secs=duration_secs,
+            progress_cb=_make_progress_cb(task_queue, task_id) if task_queue else None,
+        )
+
+        if not success:
+            raise Exception(f"Encoding failed: {error}")
+
+        result: list[tuple[dict, str]] = []
+        for job, temp_output_path, final_output_path in final_paths:
+            if not os.path.exists(temp_output_path):
+                raise Exception(f"Output file was not created after encoding: {temp_output_path}")
+            if os.path.getsize(temp_output_path) == 0:
+                raise Exception(f"Output file is empty after encoding: {temp_output_path}")
+            if os.path.exists(final_output_path):
+                os.remove(final_output_path)
+            os.rename(temp_output_path, final_output_path)
+            result.append((job, final_output_path))
+
+        if task_queue:
+            live_task = task_queue.tasks.get(task_id)
+            if live_task is not None:
+                live_task["encode_progress"] = {"percentage": 100.0}
+            task_queue.update_status(task_id, "encoding", 100)
+
+        return result
+
+    @staticmethod
+    def _duration_from_media_info(info: dict) -> float:
+        try:
             d = float(info.get("format", {}).get("duration", 0) or 0)
             if d > 0:
                 return d
@@ -86,6 +162,12 @@ class Encoder:
                     return d
         except Exception:
             pass
+        return 0.0
+
+    async def _probe_duration(self, input_path: str, media_info: dict | None = None) -> float:
+        d = self._duration_from_media_info(media_info or {})
+        if d > 0:
+            return d
 
         try:
             proc = await asyncio.create_subprocess_exec(

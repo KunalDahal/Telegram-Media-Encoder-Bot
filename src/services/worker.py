@@ -12,8 +12,9 @@ from src.services.uploader import Uploader
 
 
 class Worker:
-    JOB_COOLDOWN: int = 10
-    TASK_COOLDOWN: int = 30
+    JOB_COOLDOWN: int = 0
+    TASK_COOLDOWN: int = 0
+    PREENCODE_COOLDOWN: int = 5
 
     def __init__(self, task_queue, user_settings_getter, ffmpeg, client, config):
         self.task_queue = task_queue
@@ -28,6 +29,8 @@ class Worker:
         self._current_asyncio_task: asyncio.Task | None = None
         self._prefetch_task: asyncio.Task | None = None
         self._prefetch_task_id: str | None = None
+        self._preencode_task: asyncio.Task | None = None
+        self._preencode_task_id: str | None = None
 
         os.makedirs(self.temp_base, exist_ok=True)
         os.makedirs(self.thumbnails_dir, exist_ok=True)
@@ -59,6 +62,7 @@ class Worker:
                 continue
 
             self._current_task_id = task["task_id"]
+            self.task_queue.current_task = task["task_id"]
             try:
                 self._current_asyncio_task = asyncio.create_task(self._run_task(task))
                 await self._current_asyncio_task
@@ -77,8 +81,10 @@ class Worker:
             finally:
                 self._current_asyncio_task = None
                 self._current_task_id = None
+                if self.task_queue.current_task == task["task_id"]:
+                    self.task_queue.current_task = None
 
-            if self.running and self._next_queued_task():
+            if self.running and self._next_queued_task() and self.TASK_COOLDOWN > 0:
                 print(f"[Worker] Cooling down for {self.TASK_COOLDOWN}s before next task.")
                 await asyncio.sleep(self.TASK_COOLDOWN)
 
@@ -105,22 +111,54 @@ class Worker:
         jobs = task.get("jobs") or [self._legacy_job(task)]
         task["total_jobs"] = len(jobs)
 
-        for idx, job in enumerate(jobs, start=1):
-            task["current_job"] = idx
-            task["resolution"] = job["resolution"]
-            task["output_filename"] = job["output_filename"]
-            task["current_job_mode"] = job.get("processing_mode", "encode")
+        encoded_jobs = self._get_preencoded_jobs(task)
+        if encoded_jobs:
+            print(f"[Worker] Using pre-encoded outputs for {task_id[:8]}")
+            task["_allow_next_preencode"] = True
+            for idx, (job, encoded_path) in enumerate(encoded_jobs, start=1):
+                task["current_job"] = idx
+                task["resolution"] = job["resolution"]
+                task["output_filename"] = job["output_filename"]
+                task["current_job_mode"] = job.get("processing_mode", "encode")
 
-            if idx > 1 and self.JOB_COOLDOWN > 0:
-                print(f"[Worker] Job cooldown {self.JOB_COOLDOWN}s before job {idx}/{len(jobs)}")
-                await asyncio.sleep(self.JOB_COOLDOWN)
+                await self._upload(task, encoded_path, job)
+                await self._send_completion_to_group(task, job, encoded_path)
 
-            encoded_path = await self._encode(task, downloaded_path, job)
-            await self._upload(task, encoded_path, job)
-            await self._send_completion_to_group(task, job, encoded_path)
+                if os.path.exists(encoded_path):
+                    os.remove(encoded_path)
 
-            if os.path.exists(encoded_path):
-                os.remove(encoded_path)
+        elif self._can_encode_jobs_together(jobs):
+            encoded_jobs = await self._encode_many(task, downloaded_path, jobs)
+            task["_allow_next_preencode"] = True
+            for idx, (job, encoded_path) in enumerate(encoded_jobs, start=1):
+                task["current_job"] = idx
+                task["resolution"] = job["resolution"]
+                task["output_filename"] = job["output_filename"]
+                task["current_job_mode"] = job.get("processing_mode", "encode")
+
+                await self._upload(task, encoded_path, job)
+                await self._send_completion_to_group(task, job, encoded_path)
+
+                if os.path.exists(encoded_path):
+                    os.remove(encoded_path)
+        else:
+            for idx, job in enumerate(jobs, start=1):
+                task["current_job"] = idx
+                task["resolution"] = job["resolution"]
+                task["output_filename"] = job["output_filename"]
+                task["current_job_mode"] = job.get("processing_mode", "encode")
+
+                if idx > 1 and self.JOB_COOLDOWN > 0:
+                    print(f"[Worker] Job cooldown {self.JOB_COOLDOWN}s before job {idx}/{len(jobs)}")
+                    await asyncio.sleep(self.JOB_COOLDOWN)
+
+                encoded_path = await self._encode(task, downloaded_path, job)
+                task["_allow_next_preencode"] = idx == len(jobs)
+                await self._upload(task, encoded_path, job)
+                await self._send_completion_to_group(task, job, encoded_path)
+
+                if os.path.exists(encoded_path):
+                    os.remove(encoded_path)
 
         self.task_queue.remove_task(task_id)
         await self._notify_user(task["user_id"], f"✅ Task `{task_id[:8]}` completed successfully.")
@@ -262,22 +300,87 @@ class Worker:
                 self._prefetch_task_id = None
                 self._prefetch_task = None
 
+    async def _maybe_preencode_next(self, current_task_id: str):
+        if self._preencode_task and not self._preencode_task.done():
+            return
+
+        next_task = None
+        for tid in self.task_queue.queue:
+            if tid == current_task_id:
+                continue
+            t = self.task_queue.get_task(tid)
+            if not t or t.get("status") != "ready":
+                continue
+            downloaded = t.get("_downloaded_path", "")
+            if downloaded and os.path.exists(downloaded) and not self._get_preencoded_jobs(t):
+                next_task = t
+                break
+
+        if not next_task:
+            return
+
+        next_id = next_task["task_id"]
+        if self.PREENCODE_COOLDOWN > 0:
+            print(f"[Worker] Waiting {self.PREENCODE_COOLDOWN}s before pre-encoding {next_id[:8]}")
+            await asyncio.sleep(self.PREENCODE_COOLDOWN)
+            if self._preencode_task and not self._preencode_task.done():
+                return
+            if not self.running or current_task_id != self._current_task_id:
+                return
+            if next_task.get("status") != "ready":
+                return
+            downloaded = next_task.get("_downloaded_path", "")
+            if not downloaded or not os.path.exists(downloaded):
+                return
+
+        print(f"[Worker] Pre-encoding ready task {next_id[:8]} while current task uploads")
+        await self._snapshot_thumbnail(next_task)
+        self._preencode_task_id = next_id
+        self._preencode_task = asyncio.create_task(self._bg_preencode(next_task))
+
+    async def _bg_preencode(self, task: dict):
+        task_id = task["task_id"]
+        try:
+            downloaded_path = task.get("_downloaded_path", "")
+            if not downloaded_path or not os.path.exists(downloaded_path):
+                return
+
+            jobs = task.get("jobs") or [self._legacy_job(task)]
+            task["total_jobs"] = len(jobs)
+
+            if self._can_encode_jobs_together(jobs):
+                encoded_jobs = await self._encode_many(task, downloaded_path, jobs)
+            else:
+                encoded_jobs = []
+                for idx, job in enumerate(jobs, start=1):
+                    task["current_job"] = idx
+                    task["resolution"] = job["resolution"]
+                    task["output_filename"] = job["output_filename"]
+                    task["current_job_mode"] = job.get("processing_mode", "encode")
+                    encoded_jobs.append((job, await self._encode(task, downloaded_path, job)))
+
+            task["_encoded_jobs"] = encoded_jobs
+            self.task_queue.update_status(task_id, "ready", 100)
+            print(f"[Worker] Pre-encode done for {task_id[:8]}")
+        except asyncio.CancelledError:
+            self.task_queue.update_status(task_id, "ready", 0)
+            raise
+        except Exception as e:
+            print(f"[Worker] Pre-encode failed for {task_id[:8]}: {e}")
+            task.pop("_encoded_jobs", None)
+            self.task_queue.update_status(task_id, "ready", 0)
+        finally:
+            if self._preencode_task_id == task_id:
+                self._preencode_task_id = None
+                self._preencode_task = None
+
     async def _encode(self, task: dict, input_path: str, job: dict) -> str:
         task_id = task["task_id"]
         task["encode_started_at"] = datetime.utcnow().isoformat()
         self.task_queue.update_status(task_id, "encoding", 0)
         task["encode_progress"] = {"percentage": 0.0}
 
-        settings = {
-            "resolution":      job["resolution"],
-            "processing_mode": job.get("processing_mode", "encode"),
-            "crf":             job.get("crf"),
-            "preset":          job.get("preset"),
-            "codec":           job.get("codec"),
-            "audio_bitrate":   job.get("audio_bitrate"),
-            "metadata":        job.get("metadata", {}),
-            "watermark":       task.get("watermark"),
-        }
+        settings = self._settings_for_job(task, job)
 
         encoder = Encoder(self.ffmpeg)
         encoded_path = await encoder.encode(
@@ -290,10 +393,54 @@ class Worker:
             raise Exception(f"Encoder returned no path for {job['resolution']}")
         return encoded_path
 
+    async def _encode_many(self, task: dict, input_path: str, jobs: list[dict]) -> list[tuple[dict, str]]:
+        task_id = task["task_id"]
+        task["encode_started_at"] = datetime.utcnow().isoformat()
+        task["current_job"] = 0
+        task["current_job_mode"] = "encode"
+        task["resolution"] = " / ".join(job.get("resolution", "?") for job in jobs)
+        task["output_filename"] = jobs[0]["output_filename"]
+        task["encode_progress"] = {"percentage": 0.0}
+        self.task_queue.update_status(task_id, "encoding", 0)
+
+        encoder = Encoder(self.ffmpeg)
+        encoded_jobs = await encoder.encode_many(
+            task_data=task,
+            input_path=input_path,
+            jobs=jobs,
+            settings_list=[self._settings_for_job(task, job) for job in jobs],
+            task_queue=self.task_queue,
+        )
+        if not encoded_jobs:
+            raise Exception("Encoder returned no paths")
+        return encoded_jobs
+
+    def _settings_for_job(self, task: dict, job: dict) -> dict:
+        settings = {
+            "resolution":      job["resolution"],
+            "processing_mode": job.get("processing_mode", "encode"),
+            "crf":             job.get("crf"),
+            "preset":          job.get("preset"),
+            "codec":           job.get("codec"),
+            "audio_bitrate":   job.get("audio_bitrate"),
+            "metadata":        job.get("metadata", {}),
+            "watermark":       task.get("watermark"),
+        }
+        return settings
+
+    @staticmethod
+    def _can_encode_jobs_together(jobs: list[dict]) -> bool:
+        return (
+            len(jobs) > 1
+            and all(job.get("processing_mode", "encode") == "encode" for job in jobs)
+        )
+
     async def _upload(self, task: dict, file_path: str, job: dict):
         task_id = task["task_id"]
         self.task_queue.update_status(task_id, "uploading", 0)
         task["upload_progress"] = {"percentage": 0.0}
+        if task.get("_allow_next_preencode"):
+            await self._maybe_preencode_next(task_id)
 
         upload_data = {**task,
             "upload_file_path": file_path,
@@ -352,6 +499,16 @@ class Worker:
         if os.path.exists(folder):
             shutil.rmtree(folder, ignore_errors=True)
 
+    @staticmethod
+    def _get_preencoded_jobs(task: dict) -> list[tuple[dict, str]]:
+        encoded_jobs = task.get("_encoded_jobs") or []
+        if not encoded_jobs:
+            return []
+        for _, path in encoded_jobs:
+            if not path or not os.path.exists(path):
+                return []
+        return encoded_jobs
+
     async def _get_user_premium(self, user_id: int) -> bool:
         try:
             user = await self.client.get_users(user_id)
@@ -387,6 +544,15 @@ class Worker:
             print(f"[Worker] Notify failed for {user_id}: {e}")
 
     async def cancel_task(self, task_id: str):
+        if self._preencode_task_id == task_id and self._preencode_task and not self._preencode_task.done():
+            self._preencode_task.cancel()
+            try:
+                await self._preencode_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._preencode_task = None
+            self._preencode_task_id = None
+
         if self._prefetch_task_id == task_id and self._prefetch_task and not self._prefetch_task.done():
             self._prefetch_task.cancel()
             try:

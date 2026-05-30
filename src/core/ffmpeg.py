@@ -298,21 +298,93 @@ class FFmpeg:
 
         cmd.extend([
             "-c:v", video_codec,
+            "-threads", "0",
             "-preset", settings.get("preset", "medium"),
             "-crf", str(settings.get("crf", 23)),
             "-vf", vf,
             "-pix_fmt", "yuv420p",
             "-map_metadata", "0",
         ])
-        
-        if video_codec in ("libx264", "h264"):
-            cmd.extend(["-x264-params", "threads=3:lookahead_threads=1:sliced_threads=0"])
-        elif video_codec in ("libx265", "h265"):
-            cmd.extend(["-x265-params", "pools=3:lookahead-slices=1"])
 
         cmd.extend(self._container_flags(output_path))
         self._append_metadata(cmd, metadata)
         cmd.extend(["-y", output_path])
+        return cmd
+
+    def build_multi_command(self, input_path: str, outputs: list[tuple[str, dict]]) -> list:
+        input_path = os.path.abspath(input_path)
+        if not outputs:
+            raise ValueError("At least one output is required")
+
+        normalized_outputs: list[tuple[str, dict]] = []
+        for output_path, settings in outputs:
+            output_path = os.path.abspath(output_path)
+            if input_path == output_path:
+                raise ValueError("Input and output paths cannot be the same")
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            normalized_outputs.append((output_path, settings))
+
+        filter_parts = []
+        split_labels = "".join(f"[vsrc{i}]" for i in range(len(normalized_outputs)))
+        filter_parts.append(f"[0:v]split={len(normalized_outputs)}{split_labels}")
+
+        for idx, (_, settings) in enumerate(normalized_outputs):
+            dimensions = self._get_resolution_dimensions(settings.get("resolution", "1080p"))
+            width, height = dimensions.split("x")
+            scale_pad = (
+                f"scale='min({width},iw)':'min({height},ih)'"
+                f":force_original_aspect_ratio=decrease"
+                f",scale=trunc(iw/2)*2:trunc(ih/2)*2"
+            )
+            watermark = settings.get("watermark")
+            media_info = settings.get("media_info", {})
+            wm_filter = self._build_watermark_filter(watermark, media_info) if watermark else ""
+            vf = f"{scale_pad},{wm_filter}" if wm_filter else scale_pad
+            filter_parts.append(f"[vsrc{idx}]{vf}[vout{idx}]")
+
+        cmd = [
+            self.ffmpeg_path,
+            "-i", input_path,
+            "-filter_complex", ";".join(filter_parts),
+        ]
+
+        for idx, (output_path, settings) in enumerate(normalized_outputs):
+            metadata = settings.get("metadata", {})
+            video_codec = settings.get("codec", "libx264")
+            if video_codec not in ("libx264", "libx265", "h264", "h265"):
+                video_codec = "libx264"
+
+            audio_codec = settings.get("audio_codec", "aac")
+            audio_bitrate = settings.get("audio_bitrate", "128k")
+
+            cmd.extend([
+                "-map", f"[vout{idx}]",
+                "-map", "0:a?",
+                "-map", "0:s?",
+                "-map", "0:d?",
+                "-map", "0:t?",
+                "-c:v", video_codec,
+                "-threads", "0",
+                "-preset", settings.get("preset", "medium"),
+                "-crf", str(settings.get("crf", 23)),
+                "-pix_fmt", "yuv420p",
+            ])
+
+            if audio_codec == "copy":
+                cmd.extend(["-c:a", "copy"])
+            else:
+                cmd.extend(["-c:a", audio_codec, "-b:a", audio_bitrate])
+
+            cmd.extend([
+                "-c:s", "copy",
+                "-c:d", "copy",
+                "-c:t", "copy",
+                "-map_metadata", "0",
+            ])
+            cmd.extend(self._container_flags(output_path))
+            self._append_metadata(cmd, metadata)
+            cmd.extend(["-y", output_path])
+
         return cmd
 
     # ── Execute ───────────────────────────────────────────────────────────────
