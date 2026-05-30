@@ -1,4 +1,5 @@
 import asyncio
+from html import escape
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import (
@@ -19,6 +20,7 @@ _active_status: dict[int, int]  = {}
 _active_page:   dict[int, int]  = {}
 _last_content:  dict[int, str]  = {}
 _refresh_tasks: dict[int, asyncio.Task] = {}
+_last_progress: dict[tuple[str, str], float] = {}
 
 AUTO_REFRESH_INTERVAL = 3
 _BAR_LEN = 10
@@ -31,7 +33,7 @@ _ACTIVE_STATUSES = frozenset({
 # ── Progress bar ───────────────────────────────────────────────────────────────
 
 def _progress_bar(pct: float) -> str:
-    pct    = max(0.0, min(100.0, float(pct)))
+    pct    = _clean_pct(pct)
     filled = round(_BAR_LEN * pct / 100)
     empty  = _BAR_LEN - filled
     return f"[{'█' * filled}{'░' * empty}] {pct:.1f}%"
@@ -280,8 +282,8 @@ async def show_status(client, message, task_queue, page=0, is_callback=False):
             _last_content[chat_id] = text
         except FloodWait as e:
             await asyncio.sleep(e.value)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[status] edit failed: {e}")
     else:
         await message.reply_text(
             text,
@@ -293,12 +295,17 @@ async def show_status(client, message, task_queue, page=0, is_callback=False):
 # ── Status content builder ────────────────────────────────────────────────────
 
 def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
-    all_active = [
-        task_queue.get_task(tid)
-        for tid in task_queue.queue
-        if task_queue.get_task(tid)
-        and task_queue.get_task(tid).get("status") in _ACTIVE_STATUSES
-    ]
+    all_active = []
+    active_ids = set()
+    for tid in list(task_queue.queue):
+        task = task_queue.get_task(tid)
+        if task and task.get("status") in _ACTIVE_STATUSES:
+            all_active.append(task)
+            active_ids.add(task.get("task_id"))
+
+    for key in list(_last_progress):
+        if key[0] not in active_ids:
+            _last_progress.pop(key, None)
 
     items_per_page = 5
     total_pages    = ceil(len(all_active) / items_per_page) if all_active else 1
@@ -320,7 +327,7 @@ def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
     if not all_active:
         lines.append("✅ No tasks in queue.\n")
 
-    cpu      = psutil.cpu_percent(interval=0.1)
+    cpu      = psutil.cpu_percent(interval=None)
     mem      = psutil.virtual_memory()
     disk     = psutil.disk_usage("/")
     disk_pct = disk.used / disk.total * 100
@@ -341,6 +348,7 @@ def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
 def _build_task_block(idx: int, task: dict) -> str:
     status   = task.get("status", "queued")
     user_str = f"@{task['username']}" if task.get("username") else task.get("first_name", "Unknown")
+    user_str = escape(str(user_str))
     task_id  = task.get("task_id", "????????")
 
     filename = (
@@ -356,7 +364,7 @@ def _build_task_block(idx: int, task: dict) -> str:
 
     title = "Task 0 (Running)" if idx == 0 else f"Task {idx}"
     b  = f"<b>{title}</b>\n"
-    b += f"┃ File: <code>{filename}</code>\n"
+    b += f"┃ File: <code>{escape(str(filename))}</code>\n"
     b += f"┃ Size: {size_str}\n"
     b += f"┠ Resolution : {res_line}\n"
     b += f"┠ Status : {status_label}\n"
@@ -376,10 +384,10 @@ def _build_task_block(idx: int, task: dict) -> str:
 
     b += f"┠ Elapsed: {_elapsed_for_task(task)}\n"
     b += f"┠ User: {user_str}\n"
-    b += f"┠ ID: <code>{task.get('user_id', '?')}</code>\n"
-    b += f"┖ <code>/cancel {task_id[:8]}</code>"
-    if idx > 0:
-        b += f"  |  <code>/shift {task_id[:8]} 2</code>"
+    b += f"┠ ID: <code>{escape(str(task.get('user_id', '?')))}</code>\n"
+    b += f"┖ <code>/cancel {escape(str(task_id[:8]))}</code>"
+    if idx > 1:
+        b += f"  |  <code>/shift {escape(str(task_id[:8]))} 2</code>"
     return b
 
 
@@ -400,9 +408,9 @@ def _build_resolution_line(task: dict) -> str:
     parts = []
     for res in all_res:
         if res == current_res and status in ("encoding", "uploading", "downloading"):
-            parts.append(f"<u>{res}</u>")
+            parts.append(f"<u>{escape(str(res))}</u>")
         else:
-            parts.append(res)
+            parts.append(escape(str(res)))
 
     return "  ||  ".join(parts) if parts else "—"
 
@@ -447,10 +455,12 @@ def _build_size_str(task: dict) -> str:
 
 def _build_progress_info(task: dict) -> tuple[float | None, str, str]:
     status = task.get("status", "")
+    task_id = str(task.get("task_id", ""))
+    stage_key = f"{status}:{task.get('current_job', 0)}"
 
     if status == "downloading":
         pd        = task.get("progress_details", {})
-        pct       = float(pd.get("percentage", task.get("progress", 0)))
+        pct       = _display_pct(task_id, stage_key, pd.get("percentage", task.get("progress", 0)))
         speed_str = _fmt_speed(pd.get("speed", 0))
         eta_str   = _fmt_eta(pd.get("eta", 0)) if pct < 99 else ""
         return pct, speed_str, eta_str
@@ -458,12 +468,13 @@ def _build_progress_info(task: dict) -> tuple[float | None, str, str]:
     if status == "encoding":
         # encode_progress is written by Encoder directly onto the live task dict
         ep  = task.get("encode_progress", {})
-        pct = float(ep.get("percentage", task.get("progress", 0)))
+        pct = _display_pct(task_id, stage_key, ep.get("percentage", task.get("progress", 0)))
         return pct, "", ""
 
     if status == "uploading":
         up        = task.get("upload_progress", {})
-        pct       = float(up.get("percentage", task.get("progress", 0)))
+        upload_key = f"{stage_key}:{up.get('current_part', 1)}"
+        pct       = _display_pct(task_id, upload_key, up.get("percentage", task.get("progress", 0)))
         speed_str = _fmt_speed(up.get("speed", 0))
         eta_str   = _fmt_eta(up.get("eta", 0)) if pct < 99 else ""
         return pct, speed_str, eta_str
@@ -471,15 +482,46 @@ def _build_progress_info(task: dict) -> tuple[float | None, str, str]:
     return None, "", ""
 
 
+def _clean_pct(value) -> float:
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if pct != pct:
+        return 0.0
+    return max(0.0, min(100.0, pct))
+
+
+def _display_pct(task_id: str, status: str, value) -> float:
+    pct = _clean_pct(value)
+    if not task_id:
+        return pct
+
+    key = (task_id, status)
+    previous = _last_progress.get(key)
+    if previous is not None and pct < previous and previous < 100.0:
+        pct = previous
+    _last_progress[key] = pct
+    return pct
+
+
 # ── Formatting helpers ─────────────────────────────────────────────────────────
 
 def _fmt_speed(bps: float) -> str:
+    try:
+        bps = float(bps)
+    except (TypeError, ValueError):
+        return ""
     if not bps or bps < 100:
         return ""
     return f"{humanize.naturalsize(bps, binary=True)}/s"
 
 
 def _fmt_eta(seconds: int) -> str:
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return ""
     if not seconds or seconds <= 0:
         return ""
     if seconds >= 3600:

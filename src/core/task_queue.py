@@ -91,6 +91,9 @@ class TaskQueue:
             return False, "Task is not in the queue.", 0
         if task_id == self.current_task:
             return False, "The currently running task cannot be shifted.", 0
+        current_position = self.get_next_queue_position(task_id)
+        if current_position == 1:
+            return False, "Task 1 is locked as the next processing slot.", 0
         if task.get("status") not in {"queued", "ready", "downloading"}:
             return False, "Only waiting or prefetched tasks can be shifted.", 0
 

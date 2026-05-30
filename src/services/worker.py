@@ -31,6 +31,7 @@ class Worker:
         self._prefetch_task_id: str | None = None
         self._preencode_task: asyncio.Task | None = None
         self._preencode_task_id: str | None = None
+        self._encode_lock = asyncio.Lock()
 
         os.makedirs(self.temp_base, exist_ok=True)
         os.makedirs(self.thumbnails_dir, exist_ok=True)
@@ -107,6 +108,7 @@ class Worker:
             raise Exception("Download produced no file")
 
         asyncio.create_task(self._maybe_prefetch_next(task_id))
+        await self._wait_for_matching_preencode(task_id)
 
         jobs = task.get("jobs") or [self._legacy_job(task)]
         task["total_jobs"] = len(jobs)
@@ -161,7 +163,6 @@ class Worker:
                     os.remove(encoded_path)
 
         self.task_queue.remove_task(task_id)
-        await self._notify_user(task["user_id"], f"✅ Task `{task_id[:8]}` completed successfully.")
         self._cleanup_task_folder(task_id)
 
     async def _send_completion_to_group(self, task: dict, job: dict, file_path: str):
@@ -374,46 +375,62 @@ class Worker:
                 self._preencode_task_id = None
                 self._preencode_task = None
 
+    async def _wait_for_matching_preencode(self, task_id: str):
+        if self._preencode_task_id != task_id:
+            return
+        if not self._preencode_task or self._preencode_task.done():
+            return
+
+        print(f"[Worker] Waiting for active pre-encode handoff for {task_id[:8]}")
+        try:
+            await self._preencode_task
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"[Worker] Pre-encode handoff failed for {task_id[:8]}: {e}")
+
     async def _encode(self, task: dict, input_path: str, job: dict) -> str:
-        task_id = task["task_id"]
-        task["encode_started_at"] = datetime.utcnow().isoformat()
-        self.task_queue.update_status(task_id, "encoding", 0)
-        task["encode_progress"] = {"percentage": 0.0}
+        async with self._encode_lock:
+            task_id = task["task_id"]
+            task["encode_started_at"] = datetime.utcnow().isoformat()
+            self.task_queue.update_status(task_id, "encoding", 0)
+            task["encode_progress"] = {"percentage": 0.0}
 
-        settings = self._settings_for_job(task, job)
+            settings = self._settings_for_job(task, job)
 
-        encoder = Encoder(self.ffmpeg)
-        encoded_path = await encoder.encode(
-            task_data=task,
-            input_path=input_path,
-            settings=settings,
-            task_queue=self.task_queue,
-        )
-        if not encoded_path:
-            raise Exception(f"Encoder returned no path for {job['resolution']}")
-        return encoded_path
+            encoder = Encoder(self.ffmpeg)
+            encoded_path = await encoder.encode(
+                task_data=task,
+                input_path=input_path,
+                settings=settings,
+                task_queue=self.task_queue,
+            )
+            if not encoded_path:
+                raise Exception(f"Encoder returned no path for {job['resolution']}")
+            return encoded_path
 
     async def _encode_many(self, task: dict, input_path: str, jobs: list[dict]) -> list[tuple[dict, str]]:
-        task_id = task["task_id"]
-        task["encode_started_at"] = datetime.utcnow().isoformat()
-        task["current_job"] = 0
-        task["current_job_mode"] = "encode"
-        task["resolution"] = " / ".join(job.get("resolution", "?") for job in jobs)
-        task["output_filename"] = jobs[0]["output_filename"]
-        task["encode_progress"] = {"percentage": 0.0}
-        self.task_queue.update_status(task_id, "encoding", 0)
+        async with self._encode_lock:
+            task_id = task["task_id"]
+            task["encode_started_at"] = datetime.utcnow().isoformat()
+            task["current_job"] = 0
+            task["current_job_mode"] = "encode"
+            task["resolution"] = " / ".join(job.get("resolution", "?") for job in jobs)
+            task["output_filename"] = jobs[0]["output_filename"]
+            task["encode_progress"] = {"percentage": 0.0}
+            self.task_queue.update_status(task_id, "encoding", 0)
 
-        encoder = Encoder(self.ffmpeg)
-        encoded_jobs = await encoder.encode_many(
-            task_data=task,
-            input_path=input_path,
-            jobs=jobs,
-            settings_list=[self._settings_for_job(task, job) for job in jobs],
-            task_queue=self.task_queue,
-        )
-        if not encoded_jobs:
-            raise Exception("Encoder returned no paths")
-        return encoded_jobs
+            encoder = Encoder(self.ffmpeg)
+            encoded_jobs = await encoder.encode_many(
+                task_data=task,
+                input_path=input_path,
+                jobs=jobs,
+                settings_list=[self._settings_for_job(task, job) for job in jobs],
+                task_queue=self.task_queue,
+            )
+            if not encoded_jobs:
+                raise Exception("Encoder returned no paths")
+            return encoded_jobs
 
     def _settings_for_job(self, task: dict, job: dict) -> dict:
         settings = {
