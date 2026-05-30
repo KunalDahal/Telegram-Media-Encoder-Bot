@@ -20,6 +20,7 @@ EncodeBot is designed for handling video workflows directly inside Telegram. The
 | `/mi`     | Generates a MediaInfo report from a replied file or URL. The command extracts technical details such as codec, bitrate, duration, audio tracks, subtitle tracks, and container information.                                                         |
 | `/status` | Displays the active encoding queue, current FFmpeg stage, system resource usage, and queued tasks. It helps track which file is downloading, encoding, or uploading in real time.                                                                   |
 | `/cancel` | Stops a running or queued task instantly. The bot terminates the FFmpeg process, removes temporary files, and continues with the next task in the queue.                                                                                            |
+| `/shift`  | Moves a waiting task to a new next-queue position. Example: `/shift <task_id> 2` moves that task behind the protected running and next slots.                                                                                                    |
 
 ---
 

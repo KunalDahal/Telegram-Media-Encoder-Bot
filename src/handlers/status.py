@@ -308,7 +308,12 @@ def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
 
     lines: list[str] = []
     for i, task in enumerate(page_tasks, start=start_idx + 1):
-        lines.append(_build_task_block(i, task))
+        display_pos = (
+            task_queue.get_next_queue_position(task.get("task_id"))
+            if hasattr(task_queue, "get_next_queue_position")
+            else i
+        )
+        lines.append(_build_task_block(display_pos, task))
         if i < start_idx + len(page_tasks):
             lines.append("▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁")
 
@@ -349,7 +354,8 @@ def _build_task_block(idx: int, task: dict) -> str:
     status_label = _build_status_label(task)
     pct, speed_str, eta_str = _build_progress_info(task)
 
-    b  = f"<b>Task {idx}</b>\n"
+    title = "Task 0 (Running)" if idx == 0 else f"Task {idx}"
+    b  = f"<b>{title}</b>\n"
     b += f"┃ File: <code>{filename}</code>\n"
     b += f"┃ Size: {size_str}\n"
     b += f"┠ Resolution : {res_line}\n"
@@ -372,6 +378,8 @@ def _build_task_block(idx: int, task: dict) -> str:
     b += f"┠ User: {user_str}\n"
     b += f"┠ ID: <code>{task.get('user_id', '?')}</code>\n"
     b += f"┖ <code>/cancel {task_id[:8]}</code>"
+    if idx > 0:
+        b += f"  |  <code>/shift {task_id[:8]} 2</code>"
     return b
 
 
