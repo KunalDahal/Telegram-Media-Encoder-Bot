@@ -69,6 +69,62 @@ class TaskQueue:
                 position += 1
         return 0
 
+    def get_next_queue_position(self, task_id: str) -> int:
+        if task_id == self.current_task:
+            return 0
+        position = 1
+        for tid in self.queue:
+            if tid == self.current_task:
+                continue
+            task = self.tasks.get(tid)
+            if task and task.get("status") in _ACTIVE_STATUSES:
+                if tid == task_id:
+                    return position
+                position += 1
+        return 0
+
+    def shift_task(self, task_id: str, next_position: int) -> tuple[bool, str, int]:
+        task = self.tasks.get(task_id)
+        if not task:
+            return False, "Task not found.", 0
+        if task_id not in self.queue:
+            return False, "Task is not in the queue.", 0
+        if task_id == self.current_task:
+            return False, "The currently running task cannot be shifted.", 0
+        if task.get("status") not in {"queued", "ready", "downloading"}:
+            return False, "Only waiting or prefetched tasks can be shifted.", 0
+
+        if int(next_position) < 2:
+            return False, "Positions 0 and 1 are locked. Use position 2 or higher.", 0
+
+        next_position = int(next_position)
+        self.queue.remove(task_id)
+
+        current_id = self.current_task if self.current_task in self.queue else None
+        first_shiftable_index = self.queue.index(current_id) + 1 if current_id else 0
+        waiting_ids = [
+            tid for tid in self.queue
+            if tid != current_id
+            and self.tasks.get(tid)
+            and self.tasks[tid].get("status") in _ACTIVE_STATUSES
+        ]
+
+        next_position = min(next_position, len(waiting_ids) + 1)
+        if next_position <= len(waiting_ids):
+            insert_at = self.queue.index(waiting_ids[next_position - 1])
+        elif waiting_ids:
+            insert_at = self.queue.index(waiting_ids[-1]) + 1
+        elif current_id:
+            insert_at = self.queue.index(current_id) + 1
+        else:
+            insert_at = 0
+
+        if current_id:
+            insert_at = max(insert_at, first_shiftable_index)
+
+        self.queue.insert(insert_at, task_id)
+        return True, "Task shifted.", next_position
+
     def purge_stale_tasks(self):
         queue_set = set(self.queue)
         stale = [

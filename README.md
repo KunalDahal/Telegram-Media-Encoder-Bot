@@ -18,9 +18,17 @@ EncodeBot is a Pyrogram bot that accepts video files in a Telegram group, proces
 
 The bot starts by creating a new `asyncio` event loop and patching `asyncio.get_event_loop` to return it when called from threads that don't own a loop. This avoids `RuntimeError: no current event loop` on some platforms (notably Windows with `WindowsProactorEventLoopPolicy`).
 
-A single `pyrogram.Client` is initialised with `workers=32` and `max_concurrent_transmissions=10`. All handler modules are registered against this client before it starts idle.
-
-A `Worker` coroutine is launched as an `asyncio.Task` and runs concurrently with Pyrogram's own dispatcher via `asyncio.create_task`.
+| Command   | Purpose                                                                                                                                                                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/es`     | Opens the settings panel where users configure output resolutions, CRF values, codec, audio bitrate, watermark, metadata, filename template, upload mode, and thumbnail. All settings are saved per user and reused automatically for future tasks. |
+| `/encode` | Encodes a single replied video into one or more selected resolutions. The command applies the saved FFmpeg profile for each resolution, including codec, CRF, audio bitrate, metadata, and watermark settings.                                      |
+| `/be`     | Batch-encodes an entire Telegram album. Each file is processed using the same FFmpeg profile and naming template, making it useful for encoding complete series episodes or multi-part uploads.                                                     |
+| `/rename` | Renames a single video without changing the selected resolution. It can still inject metadata and apply watermarking if enabled, allowing files to be reorganized without a full encode.                                                            |
+| `/br`     | Batch-renames a Telegram album using the saved filename template. Useful when preparing complete seasons or collections with consistent naming and optional watermarking.                                                                           |
+| `/mi`     | Generates a MediaInfo report from a replied file or URL. The command extracts technical details such as codec, bitrate, duration, audio tracks, subtitle tracks, and container information.                                                         |
+| `/status` | Displays the active encoding queue, current FFmpeg stage, system resource usage, and queued tasks. It helps track which file is downloading, encoding, or uploading in real time.                                                                   |
+| `/cancel` | Stops a running or queued task instantly. The bot terminates the FFmpeg process, removes temporary files, and continues with the next task in the queue.                                                                                            |
+| `/shift`  | Moves a waiting task to a new next-queue position. Example: `/shift <task_id> 2` moves that task behind the protected running and next slots.                                                                                                    |
 
 ---
 

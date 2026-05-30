@@ -4,7 +4,7 @@ import shutil
 import uuid
 from typing import Any, Dict
 
-VALID_RESOLUTIONS = ["1080p", "720p", "480p"]
+VALID_RESOLUTIONS = ["480p", "720p", "1080p"]
 RESOLUTION_ALIASES = {
     "1080p": "1080p",
     "720p":  "720p",

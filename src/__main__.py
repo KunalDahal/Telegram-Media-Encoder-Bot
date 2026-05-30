@@ -27,6 +27,7 @@ from src.services import Worker
 from src.handlers.encode import setup_encode_handlers
 from src.handlers.settings import setup_settings_handlers
 from src.handlers.status import setup_status_handlers
+from src.handlers.shift import setup_shift_handlers
 from src.handlers.start import setup_start_handler
 from src.handlers.cancel import setup_cancel_handlers, set_worker_instance, set_admin_ids
 from src.handlers.mi import setup_mediainfo_handlers
@@ -73,6 +74,7 @@ async def main():
     setup_encode_handlers(app=app, task_queue=task_queue, user_settings=get_user_settings, config=config)
     setup_rename_handler(app, task_queue, get_user_settings, config)
     setup_cancel_handlers(app, task_queue, config)
+    setup_shift_handlers(app=app, task_queue=task_queue, config=config)
     setup_status_handlers(app=app, task_queue=task_queue, admin_ids=config.admin_ids, config=config)
     setup_start_handler(app, config)  
     setup_mediainfo_handlers(app=app, config=config)

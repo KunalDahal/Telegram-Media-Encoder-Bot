@@ -16,7 +16,7 @@ ALLOWED_VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".webm", ".mov", ".avi",
     ".mpeg", ".mpg", ".wmv", ".flv", ".3gp",
 }
-SUPPORTED_RESOLUTIONS = ["1080p", "720p", "480p"]
+SUPPORTED_RESOLUTIONS = ["480p", "720p", "1080p"]
 
 
 async def _safe_edit(msg, text: str):
