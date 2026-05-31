@@ -65,7 +65,6 @@ def _build_random_intervals(
     if video_duration <= 0 or repeat_count <= 0 or per_duration <= 0:
         return []
 
-    # ── Feasibility clamp ─────────────────────────────────────────────────────
     max_fits = max(1, int(video_duration / per_duration))
     repeat_count = min(repeat_count, max_fits)
     section_len = video_duration / repeat_count
@@ -172,7 +171,6 @@ class FFmpeg:
         except (TypeError, ValueError):
             video_duration = 0.0
 
-        # ── Build enable= expression ──────────────────────────────────────────
         enable_expr = ""
 
         if timing_mode == "full":
@@ -198,7 +196,6 @@ class FFmpeg:
             else:
                 enable_expr = ""
 
-        # ── Assemble drawtext filter ──────────────────────────────────────────
         parts = [f"{font_part}text='{text_escaped}'"]
         parts += [
             f"fontcolor={color}",
@@ -387,15 +384,13 @@ class FFmpeg:
 
         return cmd
 
-    # ── Execute ───────────────────────────────────────────────────────────────
-
     async def execute(
         self,
         cmd:           list,
         duration_secs: float = 0.0,
         progress_cb=None,
     ) -> tuple[bool, str | None]:
-        use_progress = bool(progress_cb)  # always pipe progress when a cb is given
+        use_progress = bool(progress_cb)  
 
         if use_progress:
             out_file = cmd[-1]
@@ -443,33 +438,16 @@ class FFmpeg:
         stderr_chunks: list[bytes] = []
 
         async def _read_stdout():
-            # Tracks the best elapsed-time value seen so far from any key.
-            # Priority: out_time_us > out_time_ms > out_time (HH:MM:SS)
-            _elapsed: list[float] = [0.0]   # mutable cell for the closure
+            _elapsed: list[float] = [0.0]  
 
             def _parse_elapsed(key: str, val: str) -> float | None:
-                """Return elapsed seconds from a -progress key=value pair, or None.
-
-                ffmpeg -progress emits these timing keys per progress block:
-                  out_time_us  — elapsed microseconds (correct name, correct unit)
-                  out_time_ms  — also microseconds despite the misleading name
-                                 (long-standing ffmpeg misnomer, trac #10413);
-                                 divide by 1_000_000, NOT 1_000
-                  out_time     — HH:MM:SS.us string, fallback for older builds
-
-                All three are accepted so the parser works across ffmpeg versions.
-                The first non-None value in the block wins because _elapsed is only
-                updated when the new value is strictly greater.
-                """
                 val = val.strip()
                 if val in ("N/A", "n/a", ""):
                     return None
                 try:
                     if key in ("out_time_us", "out_time_ms"):
-                        # Both fields carry microseconds — same divisor for both.
                         return int(val) / 1_000_000
                     if key == "out_time":
-                        # format: HH:MM:SS.microseconds
                         parts = val.split(":")
                         if len(parts) == 3:
                             return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
@@ -480,8 +458,8 @@ class FFmpeg:
             try:
                 line_count = 0
                 _last_frame: list[int] = [0]
-                _fps: list[float] = [0.0]          # learned from ffmpeg progress output
-                _total_frames: list[float] = [0.0]  # duration_secs * fps once known
+                _fps: list[float] = [0.0]          
+                _total_frames: list[float] = [0.0] 
 
                 async for raw in process.stdout:
                     line = raw.decode("utf-8", errors="ignore").strip()
@@ -491,8 +469,6 @@ class FFmpeg:
                     if "=" not in line:
                         continue
                     key, _, val = line.partition("=")
-
-                    # ── Learn fps so frame-based progress is accurate ─────────
                     if key == "fps" and _fps[0] == 0.0:
                         try:
                             f = float(val.strip())
@@ -502,8 +478,6 @@ class FFmpeg:
                                     _total_frames[0] = duration_secs * f
                         except (ValueError, AttributeError):
                             pass
-
-                    # ── Time-based progress (preferred) ───────────────────────
                     if key in ("out_time_us", "out_time_ms", "out_time"):
                         print(f"[FFmpeg] timing key={key!r} val={val!r}")
                     elapsed = _parse_elapsed(key, val)
@@ -516,8 +490,6 @@ class FFmpeg:
                         except Exception:
                             pass
                         continue
-
-                    # ── Frame-based fallback (when out_time_* is N/A or absent) ─
                     if key == "frame":
                         try:
                             frame = int(val.strip())
