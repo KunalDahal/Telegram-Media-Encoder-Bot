@@ -2,11 +2,7 @@ import asyncio
 from html import escape
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait, MessageNotModified
-from pyrogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from datetime import datetime
 from math import ceil
 import humanize
@@ -15,11 +11,10 @@ import time
 
 BOT_START_TIME = time.time()
 
-# Per-chat state: which status message is active, which page, last rendered text
-_active_status: dict[int, int]  = {}
-_active_page:   dict[int, int]  = {}
-_last_content:  dict[int, str]  = {}
-_refresh_tasks: dict[int, asyncio.Task] = {}
+_active_status: dict[int, int]            = {}
+_active_page:   dict[int, int]            = {}
+_last_content:  dict[int, str]            = {}
+_refresh_tasks: dict[int, asyncio.Task]   = {}
 _last_progress: dict[tuple[str, str], float] = {}
 
 AUTO_REFRESH_INTERVAL = 3
@@ -30,16 +25,12 @@ _ACTIVE_STATUSES = frozenset({
 })
 
 
-# ── Progress bar ───────────────────────────────────────────────────────────────
-
 def _progress_bar(pct: float) -> str:
     pct    = _clean_pct(pct)
     filled = round(_BAR_LEN * pct / 100)
     empty  = _BAR_LEN - filled
     return f"[{'█' * filled}{'░' * empty}] {pct:.1f}%"
 
-
-# ── Keyboard ───────────────────────────────────────────────────────────────────
 
 def _build_keyboard(page: int, total_pages: int, has_tasks: bool) -> InlineKeyboardMarkup | None:
     nav = []
@@ -59,8 +50,6 @@ def _build_keyboard(page: int, total_pages: int, has_tasks: bool) -> InlineKeybo
     return InlineKeyboardMarkup(rows) if rows else None
 
 
-# ── Access guard ───────────────────────────────────────────────────────────────
-
 async def _check_access(client, message: Message, admin_ids: list) -> bool:
     user_id = message.from_user.id
     if user_id not in admin_ids:
@@ -78,8 +67,6 @@ async def _check_access(client, message: Message, admin_ids: list) -> bool:
         return False
     return True
 
-
-# ── Handler registration ───────────────────────────────────────────────────────
 
 def setup_status_handlers(app: Client, task_queue, admin_ids, config):
     allowed_filter = filters.chat(config.allowed_group_ids)
@@ -107,8 +94,6 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
                 _auto_refresh_loop(client, chat_id, sent, task_queue)
             )
 
-    # ── Pagination ─────────────────────────────────────────────────────────────
-
     @app.on_callback_query(filters.regex(r"^status_page:"))
     async def status_page_callback(client: Client, callback_query):
         chat_id = callback_query.message.chat.id
@@ -133,10 +118,8 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             return
 
         _active_page[chat_id] = page
-        _last_content.pop(chat_id, None)  
+        _last_content.pop(chat_id, None)
         await show_status(client, callback_query.message, task_queue, page=page, is_callback=True)
-
-    # ── Cancel All — confirm ───────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^status_cancel_all:confirm$"))
     async def cancel_all_confirm_callback(client: Client, callback_query):
@@ -162,8 +145,6 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             _last_content.pop(chat_id, None)
         except Exception as e:
             print(f"[status] cancel_all confirm edit failed: {e}")
-
-    # ── Cancel All — execute ───────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^status_cancel_all:(yes|no)$"))
     async def cancel_all_execute_callback(client: Client, callback_query):
@@ -194,14 +175,12 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
             if not task or task.get("status") not in _ACTIVE_STATUSES:
                 continue
             try:
-                status = task.get("status", "")
-                if status == "queued":
+                if task.get("status") == "queued":
                     task_queue.remove_task(tid)
+                elif worker:
+                    await worker.cancel_task(tid)
                 else:
-                    if worker:
-                        await worker.cancel_task(tid)
-                    else:
-                        task_queue.remove_task(tid)
+                    task_queue.remove_task(tid)
                 cancelled += 1
             except Exception as e:
                 print(f"[status] failed to cancel task {tid}: {e}")
@@ -220,8 +199,6 @@ def setup_status_handlers(app: Client, task_queue, admin_ids, config):
         _last_content.pop(chat_id, None)
         await show_status(client, callback_query.message, task_queue, page=0, is_callback=True)
 
-
-# ── Auto-refresh ───────────────────────────────────────────────────────────────
 
 def _cancel_refresh(chat_id: int):
     t = _refresh_tasks.pop(chat_id, None)
@@ -242,22 +219,16 @@ async def _auto_refresh_loop(client, chat_id: int, status_msg, task_queue):
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                print(f"[status] auto-refresh error (continuing): {e}")
+                print(f"[status] auto-refresh error: {e}")
     except asyncio.CancelledError:
         pass
 
-
-# ── Senders ────────────────────────────────────────────────────────────────────
 
 async def _send_status(client, message, task_queue, page=0) -> Message | None:
     text, total_pages, has_tasks = _build_status_content(task_queue, page)
     keyboard = _build_keyboard(page, total_pages, has_tasks)
     try:
-        return await message.reply_text(
-            text,
-            parse_mode=enums.ParseMode.HTML,
-            reply_markup=keyboard,
-        )
+        return await message.reply_text(text, parse_mode=enums.ParseMode.HTML, reply_markup=keyboard)
     except Exception as e:
         print(f"[status] send failed: {e}")
         return None
@@ -272,11 +243,7 @@ async def show_status(client, message, task_queue, page=0, is_callback=False):
         if _last_content.get(chat_id) == text:
             return
         try:
-            await message.edit_text(
-                text,
-                parse_mode=enums.ParseMode.HTML,
-                reply_markup=keyboard,
-            )
+            await message.edit_text(text, parse_mode=enums.ParseMode.HTML, reply_markup=keyboard)
             _last_content[chat_id] = text
         except MessageNotModified:
             _last_content[chat_id] = text
@@ -285,14 +252,8 @@ async def show_status(client, message, task_queue, page=0, is_callback=False):
         except Exception as e:
             print(f"[status] edit failed: {e}")
     else:
-        await message.reply_text(
-            text,
-            parse_mode=enums.ParseMode.HTML,
-            reply_markup=keyboard,
-        )
+        await message.reply_text(text, parse_mode=enums.ParseMode.HTML, reply_markup=keyboard)
 
-
-# ── Status content builder ────────────────────────────────────────────────────
 
 def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
     all_active = []
@@ -301,7 +262,7 @@ def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
         task = task_queue.get_task(tid)
         if task and task.get("status") in _ACTIVE_STATUSES:
             all_active.append(task)
-            active_ids.add(task.get("task_id"))
+            active_ids.add(tid)
 
     for key in list(_last_progress):
         if key[0] not in active_ids:
@@ -314,14 +275,10 @@ def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
     page_tasks     = all_active[start_idx: start_idx + items_per_page]
 
     lines: list[str] = []
-    for i, task in enumerate(page_tasks, start=start_idx + 1):
-        display_pos = (
-            task_queue.get_next_queue_position(task.get("task_id"))
-            if hasattr(task_queue, "get_next_queue_position")
-            else i
-        )
-        lines.append(_build_task_block(display_pos, task))
-        if i < start_idx + len(page_tasks):
+    for i, task in enumerate(page_tasks):
+        queue_pos = task_queue.get_queue_position(task["task_id"])
+        lines.append(_build_task_block(queue_pos, task))
+        if i < len(page_tasks) - 1:
             lines.append("▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁")
 
     if not all_active:
@@ -343,9 +300,7 @@ def _build_status_content(task_queue, page: int) -> tuple[str, int, bool]:
     return "\n".join(lines), total_pages, bool(all_active)
 
 
-# ── Per-task block ─────────────────────────────────────────────────────────────
-
-def _build_task_block(idx: int, task: dict) -> str:
+def _build_task_block(queue_pos: int, task: dict) -> str:
     status   = task.get("status", "queued")
     user_str = f"@{task['username']}" if task.get("username") else task.get("first_name", "Unknown")
     user_str = escape(str(user_str))
@@ -362,7 +317,7 @@ def _build_task_block(idx: int, task: dict) -> str:
     status_label = _build_status_label(task)
     pct, speed_str, eta_str = _build_progress_info(task)
 
-    title = "Task 0 (Running)" if idx == 0 else f"Task {idx}"
+    title = "Task 0 (Running)" if queue_pos == 0 else f"Task {queue_pos}"
     b  = f"<b>{title}</b>\n"
     b += f"┃ File: <code>{escape(str(filename))}</code>\n"
     b += f"┃ Size: {size_str}\n"
@@ -386,12 +341,10 @@ def _build_task_block(idx: int, task: dict) -> str:
     b += f"┠ User: {user_str}\n"
     b += f"┠ ID: <code>{escape(str(task.get('user_id', '?')))}</code>\n"
     b += f"┖ <code>/cancel {escape(str(task_id[:8]))}</code>"
-    if idx > 1:
+    if queue_pos > 1:
         b += f"  |  <code>/shift {escape(str(task_id[:8]))} 2</code>"
     return b
 
-
-# ── Sub-builders ───────────────────────────────────────────────────────────────
 
 def _build_resolution_line(task: dict) -> str:
     jobs        = task.get("jobs") or []
@@ -454,7 +407,7 @@ def _build_size_str(task: dict) -> str:
 
 
 def _build_progress_info(task: dict) -> tuple[float | None, str, str]:
-    status = task.get("status", "")
+    status  = task.get("status", "")
     task_id = str(task.get("task_id", ""))
     stage_key = f"{status}:{task.get('current_job', 0)}"
 
@@ -466,17 +419,16 @@ def _build_progress_info(task: dict) -> tuple[float | None, str, str]:
         return pct, speed_str, eta_str
 
     if status == "encoding":
-        # encode_progress is written by Encoder directly onto the live task dict
         ep  = task.get("encode_progress", {})
         pct = _display_pct(task_id, stage_key, ep.get("percentage", task.get("progress", 0)))
         return pct, "", ""
 
     if status == "uploading":
-        up        = task.get("upload_progress", {})
+        up         = task.get("upload_progress", {})
         upload_key = f"{stage_key}:{up.get('current_part', 1)}"
-        pct       = _display_pct(task_id, upload_key, up.get("percentage", task.get("progress", 0)))
-        speed_str = _fmt_speed(up.get("speed", 0))
-        eta_str   = _fmt_eta(up.get("eta", 0)) if pct < 99 else ""
+        pct        = _display_pct(task_id, upload_key, up.get("percentage", task.get("progress", 0)))
+        speed_str  = _fmt_speed(up.get("speed", 0))
+        eta_str    = _fmt_eta(up.get("eta", 0)) if pct < 99 else ""
         return pct, speed_str, eta_str
 
     return None, "", ""
@@ -496,16 +448,13 @@ def _display_pct(task_id: str, status: str, value) -> float:
     pct = _clean_pct(value)
     if not task_id:
         return pct
-
-    key = (task_id, status)
+    key      = (task_id, status)
     previous = _last_progress.get(key)
     if previous is not None and pct < previous and previous < 100.0:
         pct = previous
     _last_progress[key] = pct
     return pct
 
-
-# ── Formatting helpers ─────────────────────────────────────────────────────────
 
 def _fmt_speed(bps: float) -> str:
     try:
@@ -540,7 +489,6 @@ def _fmt_secs(secs: int) -> str:
 
 
 def _elapsed_for_task(task: dict) -> str:
-
     status     = task.get("status", "")
     started_at = task.get("started_at")
 

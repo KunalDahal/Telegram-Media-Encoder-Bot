@@ -450,28 +450,26 @@ class FFmpeg:
             def _parse_elapsed(key: str, val: str) -> float | None:
                 """Return elapsed seconds from a -progress key=value pair, or None.
 
-                Modern ffmpeg outputs out_time_us and out_time_ms with the *same*
-                microsecond value (the '_ms' name is a long-standing ffmpeg misnomer,
-                see ffmpeg trac #10413).  Dividing out_time_ms by 1_000 therefore
-                yields milliseconds instead of seconds, inflating _elapsed[0] by
-                1000× and freezing the progress bar.
+                ffmpeg -progress emits these timing keys per progress block:
+                  out_time_us  — elapsed microseconds (correct name, correct unit)
+                  out_time_ms  — also microseconds despite the misleading name
+                                 (long-standing ffmpeg misnomer, trac #10413);
+                                 divide by 1_000_000, NOT 1_000
+                  out_time     — HH:MM:SS.us string, fallback for older builds
 
-                We skip out_time_ms entirely: out_time_us is always present, appears
-                first in the progress block, and carries the same data correctly.
-                out_time is kept as a fallback for older ffmpeg builds that may lack
-                out_time_us.
+                All three are accepted so the parser works across ffmpeg versions.
+                The first non-None value in the block wins because _elapsed is only
+                updated when the new value is strictly greater.
                 """
                 val = val.strip()
                 if val in ("N/A", "n/a", ""):
                     return None
                 try:
-                    if key == "out_time_us":
+                    if key in ("out_time_us", "out_time_ms"):
+                        # Both fields carry microseconds — same divisor for both.
                         return int(val) / 1_000_000
-                    # out_time_ms intentionally omitted: same microsecond value as
-                    # out_time_us but appears *after* it; dividing by 1_000 gives ms,
-                    # not seconds, which would corrupt _elapsed[0] on every batch.
                     if key == "out_time":
-                        # format: HH:MM:SS.microseconds  (fallback for older ffmpeg)
+                        # format: HH:MM:SS.microseconds
                         parts = val.split(":")
                         if len(parts) == 3:
                             return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
@@ -481,6 +479,10 @@ class FFmpeg:
 
             try:
                 line_count = 0
+                _last_frame: list[int] = [0]
+                _fps: list[float] = [0.0]          # learned from ffmpeg progress output
+                _total_frames: list[float] = [0.0]  # duration_secs * fps once known
+
                 async for raw in process.stdout:
                     line = raw.decode("utf-8", errors="ignore").strip()
                     line_count += 1
@@ -489,24 +491,58 @@ class FFmpeg:
                     if "=" not in line:
                         continue
                     key, _, val = line.partition("=")
+
+                    # ── Learn fps so frame-based progress is accurate ─────────
+                    if key == "fps" and _fps[0] == 0.0:
+                        try:
+                            f = float(val.strip())
+                            if f > 0:
+                                _fps[0] = f
+                                if duration_secs > 0.5:
+                                    _total_frames[0] = duration_secs * f
+                        except (ValueError, AttributeError):
+                            pass
+
+                    # ── Time-based progress (preferred) ───────────────────────
+                    if key in ("out_time_us", "out_time_ms", "out_time"):
+                        print(f"[FFmpeg] timing key={key!r} val={val!r}")
                     elapsed = _parse_elapsed(key, val)
-                    if elapsed is not None and elapsed > _elapsed[0]:
-                        _elapsed[0] = elapsed
-                        if duration_secs > 0.5:
-                            pct = min(99.9, elapsed / duration_secs * 100)
-                        else:
-                            import math as _math
-                            pct = min(99.0, _math.atan(elapsed / 60.0) / (_math.pi / 2) * 99.0)
-                        print(f"[FFmpeg] elapsed={elapsed:.2f}s dur={duration_secs:.2f}s pct={pct:.2f}%")
+                    if elapsed is not None and elapsed >= 0 and duration_secs > 0.5:
+                        if elapsed > _elapsed[0]:
+                            _elapsed[0] = elapsed
+                        pct = min(99.9, _elapsed[0] / duration_secs * 100)
                         try:
                             await progress_cb(pct)
                         except Exception:
                             pass
+                        continue
+
+                    # ── Frame-based fallback (when out_time_* is N/A or absent) ─
+                    if key == "frame":
+                        try:
+                            frame = int(val.strip())
+                        except (ValueError, AttributeError):
+                            continue
+                        if frame <= _last_frame[0]:
+                            continue
+                        _last_frame[0] = frame
+                        if _total_frames[0] > 0:
+                            pct = min(99.9, frame / _total_frames[0] * 100)
+                        elif duration_secs > 0.5:
+                            import math as _math
+                            pct = min(99.0, _math.atan(frame / 1000.0) / (_math.pi / 2) * 99.0)
+                        else:
+                            continue
+                        try:
+                            await progress_cb(pct)
+                        except Exception:
+                            pass
+
                 print(f"[FFmpeg] stdout loop ended, total lines={line_count}")
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                pass
+            except Exception as _loop_exc:
+                print(f"[FFmpeg] stdout loop exception: {_loop_exc}")
 
         async def _read_stderr():
             try:

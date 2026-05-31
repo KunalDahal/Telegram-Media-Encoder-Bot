@@ -11,11 +11,11 @@ _ACTIVE_STATUSES = frozenset({
 
 class TaskQueue:
     def __init__(self):
-        self.queue:       list[str]       = []
-        self.tasks:       dict[str, dict] = {}
-        self.lock         = asyncio.Lock()
-        self.processing   = False
-        self.current_task: str | None     = None
+        self.queue:        list[str]       = []
+        self.tasks:        dict[str, dict] = {}
+        self.lock          = asyncio.Lock()
+        self.processing    = False
+        self.current_task: str | None      = None
 
     def create_task(self, task_data: dict) -> str:
         task_id = str(uuid.uuid4())[:8]
@@ -60,18 +60,9 @@ class TaskQueue:
         self._refresh_processing_flag()
 
     def get_queue_position(self, task_id: str) -> int:
-        position = 1
-        for tid in self.queue:
-            task = self.tasks.get(tid)
-            if task and task.get("status") in _ACTIVE_STATUSES:
-                if tid == task_id:
-                    return position
-                position += 1
-        return 0
-
-    def get_next_queue_position(self, task_id: str) -> int:
         if task_id == self.current_task:
             return 0
+
         position = 1
         for tid in self.queue:
             if tid == self.current_task:
@@ -82,6 +73,9 @@ class TaskQueue:
                     return position
                 position += 1
         return 0
+
+    def get_next_queue_position(self, task_id: str) -> int:
+        return self.get_queue_position(task_id)
 
     def shift_task(self, task_id: str, next_position: int) -> tuple[bool, str, int]:
         task = self.tasks.get(task_id)
@@ -94,9 +88,8 @@ class TaskQueue:
         current_position = self.get_next_queue_position(task_id)
         if current_position == 1:
             return False, "Task 1 is locked as the next processing slot.", 0
-        if task.get("status") not in {"queued", "ready", "downloading"}:
+        if task.get("status") not in {"queued", "ready"}:
             return False, "Only waiting or prefetched tasks can be shifted.", 0
-
         if int(next_position) < 2:
             return False, "Positions 0 and 1 are locked. Use position 2 or higher.", 0
 
@@ -129,6 +122,16 @@ class TaskQueue:
         return True, "Task shifted.", next_position
 
     def purge_stale_tasks(self):
+        _in_progress = frozenset({"starting", "downloading", "ready", "encoding", "uploading"})
+        for task in self.tasks.values():
+            if task.get("status") in _in_progress:
+                task["status"] = "queued"
+                task["progress"] = 0
+                task.pop("_downloaded_path", None)
+                task.pop("encode_progress", None)
+                task.pop("upload_progress", None)
+                task.pop("progress_details", None)
+
         queue_set = set(self.queue)
         stale = [
             tid for tid, task in list(self.tasks.items())
@@ -140,6 +143,7 @@ class TaskQueue:
                 self.queue.remove(tid)
             except ValueError:
                 pass
+
         self.queue = [tid for tid in self.queue if tid in self.tasks]
         if self.current_task and self.current_task not in self.tasks:
             self.current_task = None
